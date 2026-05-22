@@ -25,14 +25,14 @@ class ParsedData(BaseModel):
     target_audience: str = ""
     campaign_goal: str = ""
     cta_link: str = ""
-    budget: float = Field(0.0, ge=0)
+    budget: Optional[float] = Field(None, ge=0)
 
     @field_validator("budget")
     @classmethod
-    def validate_budget(cls, v: float) -> float:
-        if v < 0:
+    def validate_budget(cls, v: Optional[float]) -> Optional[float]:
+        if v is not None and v < 0:
             raise ValueError("Budget must be a positive number")
-        return round(v, 2)
+        return round(v, 2) if v is not None else v
 
 
 class Campaign(BaseModel):
@@ -41,6 +41,9 @@ class Campaign(BaseModel):
     campaign_id: str = Field(
         default_factory=lambda: str(uuid.uuid4()),
         description="Primary key, auto-generated UUID",
+    )
+    mock_campaign_id: Optional[str] = Field(
+        None, description="Mock API campaign ID for tracking"
     )
     campaign_brief: str = Field(
         ..., min_length=1, description="Original natural language brief"
@@ -52,6 +55,9 @@ class Campaign(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     approved_at: Optional[datetime] = None
+    scheduled_time: Optional[datetime] = Field(
+        None, description="Scheduled send time for Mock API integration"
+    )
 
     @field_validator("campaign_brief")
     @classmethod
@@ -70,6 +76,7 @@ class Campaign(BaseModel):
 # Index definitions for the campaigns collection
 CAMPAIGN_INDEXES = [
     {"keys": [("campaign_id", 1)], "unique": True},
+    {"keys": [("mock_campaign_id", 1)]},
     {"keys": [("status", 1)]},
     {"keys": [("created_at", -1)]},
 ]

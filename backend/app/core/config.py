@@ -9,6 +9,8 @@ class Settings(BaseSettings):
 
     APP_NAME: str = "CampaignX"
     DEBUG: bool = False
+    ENVIRONMENT: str = "development"
+    LOG_LEVEL: str = "DEBUG"
 
     # MongoDB
     MONGODB_URL: str = "mongodb://localhost:27017"
@@ -16,6 +18,10 @@ class Settings(BaseSettings):
 
     # OpenAI
     OPENAI_API_KEY: str = ""
+
+    # Mock Campaign API
+    MOCK_CAMPAIGN_API_URL: str = "https://mock-campaign-api.onrender.com"
+    MOCK_API_TIMEOUT: int = 60
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

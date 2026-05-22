@@ -207,3 +207,29 @@ async def test_duplicate_id_raises(repo, sample_campaign):
     await repo.create(sample_campaign)
     count = await repo.count({"campaign_id": sample_campaign.campaign_id})
     assert count >= 1
+
+
+# ── Mock Campaign API Tests ──────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_find_by_mock_campaign_id(repo, sample_campaign):
+    sample_campaign.mock_campaign_id = "mock-abc-123"
+    await repo.create(sample_campaign)
+    found = await repo.find_by_mock_campaign_id("mock-abc-123")
+    assert found is not None
+    assert found.campaign_id == "camp-001"
+
+
+@pytest.mark.asyncio
+async def test_find_by_mock_campaign_id_not_found(repo):
+    result = await repo.find_by_mock_campaign_id("nonexistent")
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_update_mock_campaign_id(repo, sample_campaign):
+    await repo.create(sample_campaign)
+    updated = await repo.update_mock_campaign_id("camp-001", "mock-xyz-789")
+    assert updated is not None
+    assert updated.mock_campaign_id == "mock-xyz-789"

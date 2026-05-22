@@ -161,21 +161,23 @@ def test_variant_subject_line_too_long():
     with pytest.raises(ValueError):
         CampaignVariant(
             campaign_id="c1",
-            subject_line="X" * 101,
+            subject_line="X" * 201,
         )
 
 
-def test_variant_email_body_too_short():
-    with pytest.raises(ValueError):
-        CampaignVariant(
-            campaign_id="c1",
-            email_body="short",
-        )
+def test_variant_subject_line_at_limit():
+    v = CampaignVariant(campaign_id="c1", subject_line="X" * 200)
+    assert len(v.subject_line) == 200
 
 
 def test_variant_empty_email_body_allowed():
     v = CampaignVariant(campaign_id="c1", email_body="")
     assert v.email_body == ""
+
+
+def test_variant_email_body_too_long():
+    with pytest.raises(ValueError):
+        CampaignVariant(campaign_id="c1", email_body="X" * 5001)
 
 
 def test_variant_auto_uuid():
@@ -200,3 +202,63 @@ async def test_duplicate_variant_raises(repo, sample_variant):
     await repo.create(sample_variant)
     count = await repo.count({"variant_id": sample_variant.variant_id})
     assert count >= 1
+
+
+# ── Mock Campaign API Tests ──────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_find_by_mock_campaign_id(repo, sample_variant):
+    sample_variant.mock_campaign_id = "mock-var-123"
+    await repo.create(sample_variant)
+    results = await repo.find_by_mock_campaign_id("mock-var-123")
+    assert len(results) == 1
+    assert results[0].variant_id == "var-001"
+
+
+@pytest.mark.asyncio
+async def test_find_by_mock_campaign_id_not_found(repo):
+    results = await repo.find_by_mock_campaign_id("nonexistent")
+    assert results == []
+
+
+@pytest.mark.asyncio
+async def test_update_mock_campaign_id(repo, sample_variant):
+    await repo.create(sample_variant)
+    updated = await repo.update_mock_campaign_id("var-001", "mock-xyz")
+    assert updated is not None
+    assert updated.mock_campaign_id == "mock-xyz"
+
+
+@pytest.mark.asyncio
+async def test_get_variants_ready_for_execution(repo):
+    ready = CampaignVariant(
+        variant_id="ready-1",
+        campaign_id="camp-001",
+        status=VariantStatus.SCHEDULED,
+        customer_ids=["CUST0001", "CUST0002"],
+    )
+    not_ready = CampaignVariant(
+        variant_id="not-ready-1",
+        campaign_id="camp-001",
+        status=VariantStatus.SCHEDULED,
+        customer_ids=[],
+    )
+    await repo.create(ready)
+    await repo.create(not_ready)
+    results = await repo.get_variants_ready_for_execution("camp-001")
+    assert len(results) == 1
+    assert results[0].variant_id == "ready-1"
+
+
+def test_variant_customer_ids_default_empty():
+    v = CampaignVariant(campaign_id="c1")
+    assert v.customer_ids == []
+
+
+def test_variant_to_mock_api_payload(sample_variant):
+    payload = sample_variant.to_mock_api_payload()
+    assert "subject_line" in payload
+    assert "customer_ids" in payload
+    assert "send_time" in payload
+    assert "email_body" in payload

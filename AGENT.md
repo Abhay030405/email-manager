@@ -1,30 +1,31 @@
 # Agent Operating Rules
 
 ## Task Execution
-- Always complete all tasks in the current plan before stopping.
-- Work step-by-step.
+
+- Always use `manage_todo_list` for every multi-step request.
+- Mark a todo as **in-progress** before starting it; mark **completed** immediately after finishing.
 - Never skip tasks silently.
+- Work step-by-step — complete each todo before moving to the next.
 
 ## Post-Task Clarification
-After completing tasks, ask clarification questions.
 
-Example:
-"I've completed tasks X, Y, Z. I have a few questions before moving on: ..."
+After completing tasks, surface any ambiguities or edge cases.
 
-- Flag ambiguous requirements
-- Surface edge cases
-- Ask before making design decisions
+Example: "Completed X, Y, Z. Before moving on — should I also do…?"
 
 ## Post-Task Completion Prompt
-After finishing ALL tasks in a task plan present next options.
 
-Example:
+The **last item** in every todo list must be **"Ask user for next steps"**.
 
-All tasks complete! Give me a "Action Confirmation Prompt" like in the image (prompt.jpeg) in the root folder
+After completing all other todos, the agent MUST call `vscode_askQuestions` with:
 
-1. Run full E2E test
-2. Deploy to production
-3. Start next task plan
-4. Custom
+- A concise header
+- Clickable option buttons for each natural next action
+- A freeform input field so the user can type a custom request
+- Never replace `vscode_askQuestions` with a plain text prompt
 
-Which option would you like?
+## Interaction Rules
+
+- Prefer `vscode_askQuestions` over open-ended plain text whenever presenting choices.
+- Every question set must include at least 3 concrete options plus freeform input.
+- Never end a session with "Let me know if you need anything" — always present specific options.
