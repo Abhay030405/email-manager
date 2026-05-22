@@ -36,7 +36,7 @@ def patch_content_agent(monkeypatch):
 @pytest.mark.asyncio
 async def test_metrics_collection_node(patch_db, monkeypatch):
     class FakeMonitoring:
-        async def collect_metrics(self, campaign_id):
+        async def collect_metrics(self, campaign_id, mock_api_campaign_ids=None):
             return {
                 "variant_metrics": [
                     {"variant_id": "v1", "open_rate": 20.0, "click_rate": 5.0},
@@ -143,10 +143,10 @@ async def test_feedback_loop(patch_db, patch_content_agent, monkeypatch):
     )
 
     metrics = [
-        Metrics(variant_id="v1", campaign_id="camp-loop-001", open_rate=8.0, click_rate=1.0),
-        Metrics(variant_id="v2", campaign_id="camp-loop-001", open_rate=9.0, click_rate=1.1),
-        Metrics(variant_id="v3", campaign_id="camp-loop-001", open_rate=10.0, click_rate=1.2),
-        Metrics(variant_id="v4", campaign_id="camp-loop-001", open_rate=11.0, click_rate=1.0),
+        Metrics(variant_id="v1", campaign_id="camp-loop-001", mock_campaign_id="mock-v1", open_rate=0.08, click_rate=0.010),
+        Metrics(variant_id="v2", campaign_id="camp-loop-001", mock_campaign_id="mock-v2", open_rate=0.09, click_rate=0.011),
+        Metrics(variant_id="v3", campaign_id="camp-loop-001", mock_campaign_id="mock-v3", open_rate=0.10, click_rate=0.012),
+        Metrics(variant_id="v4", campaign_id="camp-loop-001", mock_campaign_id="mock-v4", open_rate=0.11, click_rate=0.010),
     ]
     for metric in metrics:
         await patch_db["metrics"].insert_one(metric.model_dump())
@@ -189,8 +189,9 @@ async def test_optimization_workflow_end_to_end(patch_db, patch_content_agent, m
             Metrics(
                 variant_id=f"ve2e-{idx}",
                 campaign_id="camp-opt-e2e-001",
-                open_rate=10.0 + idx,
-                click_rate=1.0 + idx * 0.3,
+                mock_campaign_id=f"mock-ve2e-{idx}",
+                open_rate=(10.0 + idx) / 100,
+                click_rate=(1.0 + idx * 0.3) / 100,
             ).model_dump()
         )
         await patch_db["campaign_variants"].insert_one(
