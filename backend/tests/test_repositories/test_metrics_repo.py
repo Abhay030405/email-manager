@@ -1,4 +1,4 @@
-"""Tests for MetricsRepository."""
+"""Tests for MetricsRepository — Mock Campaign API aligned (0.0–1.0 rates)."""
 
 import pytest
 import pytest_asyncio
@@ -30,6 +30,7 @@ async def test_create_metrics(repo, sample_metrics):
     result = await repo.create(sample_metrics)
     assert result.metric_id == "met-001"
     assert result.variant_id == "var-001"
+    assert result.mock_campaign_id == "mock-001"
 
 
 @pytest.mark.asyncio
@@ -48,9 +49,9 @@ async def test_find_by_id_not_found(repo):
 @pytest.mark.asyncio
 async def test_update_metrics(repo, sample_metrics):
     await repo.create(sample_metrics)
-    updated = await repo.update("met-001", {"emails_sent": 2000})
+    updated = await repo.update("met-001", {"total_sent": 2000})
     assert updated is not None
-    assert updated.emails_sent == 2000
+    assert updated.total_sent == 2000
 
 
 @pytest.mark.asyncio
@@ -96,24 +97,22 @@ async def test_find_by_campaign_no_match(seeded_repo):
 async def test_get_top_performers(seeded_repo):
     top = await seeded_repo.get_top_performers(limit=2)
     assert len(top) == 2
-    # Highest score first
     assert top[0].performance_score >= top[1].performance_score
 
 
 @pytest.mark.asyncio
 async def test_get_top_performers_with_min_score(seeded_repo):
-    # met-003: click=15, open=50 -> score = 0.7*15 + 0.3*50 = 25.5
-    # met-001: click=10, open=40 -> score = 0.7*10 + 0.3*40 = 19.0
-    # met-002: click=3, open=20 -> score = 0.7*3 + 0.3*20 = 8.1
-    top = await seeded_repo.get_top_performers(limit=10, min_score=15.0)
-    assert all(m.performance_score >= 15.0 for m in top)
+    # met-003: click=0.15, open=0.50 -> score = 0.7*0.15 + 0.3*0.50 = 0.255
+    # met-001: click=0.10, open=0.40 -> score = 0.7*0.10 + 0.3*0.40 = 0.19
+    # met-002: click=0.03, open=0.20 -> score = 0.7*0.03 + 0.3*0.20 = 0.081
+    top = await seeded_repo.get_top_performers(limit=10, min_score=0.15)
+    assert all(m.performance_score >= 0.15 for m in top)
 
 
 @pytest.mark.asyncio
 async def test_get_bottom_performers(seeded_repo):
     bottom = await seeded_repo.get_bottom_performers(limit=1)
     assert len(bottom) == 1
-    # Lowest score should be met-002 (score ≈ 8.1)
     assert bottom[0].metric_id == "met-002"
 
 
@@ -124,8 +123,8 @@ async def test_calculate_campaign_aggregates(seeded_repo):
     assert "avg_click_rate" in agg
     assert "total_sent" in agg
     assert agg["total_sent"] == 1800  # 1000 + 800
-    assert agg["total_opened"] == 560  # 400 + 160
-    assert agg["total_clicked"] == 124  # 100 + 24
+    assert agg["total_opens"] == 560  # 400 + 160
+    assert agg["total_clicks"] == 124  # 100 + 24
 
 
 @pytest.mark.asyncio
@@ -144,9 +143,10 @@ async def test_get_metrics_time_series(mock_db):
             metric_id=f"ts-{i}",
             variant_id="var-ts",
             campaign_id="camp-ts",
-            open_rate=20.0 + i,
-            click_rate=5.0 + i,
-            timestamp=now + timedelta(hours=i),
+            mock_campaign_id="mock-ts",
+            open_rate=0.20 + i * 0.05,
+            click_rate=0.05 + i * 0.02,
+            calculated_at=now + timedelta(hours=i),
         )
         await repo.create(m)
 
@@ -154,9 +154,8 @@ async def test_get_metrics_time_series(mock_db):
         "camp-ts", start_date=now, end_date=now + timedelta(hours=3)
     )
     assert len(series) == 4  # hours 0, 1, 2, 3
-    # Should be in chronological order
     for j in range(len(series) - 1):
-        assert series[j].timestamp <= series[j + 1].timestamp
+        assert series[j].calculated_at <= series[j + 1].calculated_at
 
 
 @pytest.mark.asyncio
@@ -168,46 +167,108 @@ async def test_get_metrics_time_series_no_match(seeded_repo):
     assert series == []
 
 
+# ── Mock Campaign API Tests ──────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_create_from_mock_api(repo):
+    m = Metrics(
+        variant_id="var-mock",
+        campaign_id="camp-mock",
+        mock_campaign_id="mock-api-001",
+        open_rate=0.35,
+        click_rate=0.12,
+        total_sent=500,
+        unique_opens=175,
+        unique_clicks=60,
+    )
+    result = await repo.create_from_mock_api(m)
+    assert result is not None
+    assert result.mock_campaign_id == "mock-api-001"
+    assert result.total_sent == 500
+
+
+@pytest.mark.asyncio
+async def test_get_latest_by_mock_campaign_id(repo):
+    now = datetime.utcnow()
+    for i in range(3):
+        m = Metrics(
+            metric_id=f"latest-{i}",
+            variant_id="var-latest",
+            campaign_id="camp-latest",
+            mock_campaign_id="mock-latest",
+            open_rate=0.1 * (i + 1),
+            calculated_at=now + timedelta(hours=i),
+        )
+        await repo.create(m)
+    latest = await repo.get_latest_by_mock_campaign_id("mock-latest")
+    assert latest is not None
+    assert latest.metric_id == "latest-2"
+
+
+@pytest.mark.asyncio
+async def test_get_latest_by_mock_campaign_id_not_found(repo):
+    assert await repo.get_latest_by_mock_campaign_id("nonexistent") is None
+
+
+@pytest.mark.asyncio
+async def test_get_performance_distribution(seeded_repo):
+    dist = await seeded_repo.get_performance_distribution("camp-001")
+    assert len(dist) == 2  # met-001 and met-002
+    assert all("variant_id" in d for d in dist)
+    assert all("performance_score" in d for d in dist)
+
+
+@pytest.mark.asyncio
+async def test_get_performance_distribution_no_data(seeded_repo):
+    dist = await seeded_repo.get_performance_distribution("camp-999")
+    assert dist == []
+
+
 # ── Pydantic Validation Tests ────────────────────────────────────
 
 
 def test_performance_score_auto_calculated():
     m = Metrics(
-        variant_id="v1", campaign_id="c1", open_rate=40.0, click_rate=10.0
+        variant_id="v1", campaign_id="c1", mock_campaign_id="m1",
+        open_rate=0.40, click_rate=0.10,
     )
-    expected = round(0.7 * 10.0 + 0.3 * 40.0, 2)
+    expected = round(0.7 * 0.10 + 0.3 * 0.40, 2)
     assert m.performance_score == expected
 
 
 def test_open_rate_out_of_range():
     with pytest.raises(ValueError):
-        Metrics(variant_id="v1", campaign_id="c1", open_rate=101.0)
+        Metrics(variant_id="v1", campaign_id="c1", mock_campaign_id="m1", open_rate=1.1)
 
 
 def test_click_rate_negative():
     with pytest.raises(ValueError):
-        Metrics(variant_id="v1", campaign_id="c1", click_rate=-1.0)
+        Metrics(variant_id="v1", campaign_id="c1", mock_campaign_id="m1", click_rate=-0.1)
 
 
-def test_emails_sent_negative():
+def test_total_sent_negative():
     with pytest.raises(ValueError):
-        Metrics(variant_id="v1", campaign_id="c1", emails_sent=-10)
+        Metrics(variant_id="v1", campaign_id="c1", mock_campaign_id="m1", total_sent=-10)
 
 
 def test_metrics_to_dict(sample_metrics):
     d = sample_metrics.to_dict()
     assert d["metric_id"] == "met-001"
     assert "performance_score" in d
-    assert d["performance_score"] == round(0.7 * 8.5 + 0.3 * 35.0, 2)
+    expected = round(0.7 * 0.085 + 0.3 * 0.35, 2)
+    assert d["performance_score"] == expected
 
 
 def test_metrics_auto_uuid():
-    m = Metrics(variant_id="v1", campaign_id="c1")
+    m = Metrics(variant_id="v1", campaign_id="c1", mock_campaign_id="m1")
     assert m.metric_id
     assert len(m.metric_id) == 36
 
 
-# ── Error Handling ────────────────────────────────────────────────
+def test_metrics_mock_campaign_id_required():
+    with pytest.raises(ValueError):
+        Metrics(variant_id="v1", campaign_id="c1")
 
 
 @pytest.mark.asyncio

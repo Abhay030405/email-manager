@@ -24,6 +24,22 @@ class CampaignRepository(BaseRepository[Campaign]):
         """Find campaigns by status."""
         return await self.find_all(filter={"status": status})
 
+    async def find_by_mock_campaign_id(self, mock_campaign_id: str) -> Optional[Campaign]:
+        """Find a campaign by its Mock API campaign ID."""
+        doc = await self.collection.find_one({"mock_campaign_id": mock_campaign_id})
+        if doc is None:
+            return None
+        return Campaign(**doc)
+
+    async def update_mock_campaign_id(
+        self, campaign_id: str, mock_campaign_id: str
+    ) -> Optional[Campaign]:
+        """Set the mock_campaign_id after scheduling via Mock API."""
+        return await self.update(
+            campaign_id,
+            {"mock_campaign_id": mock_campaign_id, "updated_at": datetime.utcnow()},
+        )
+
     async def update_status(
         self, campaign_id: str, new_status: CampaignStatus
     ) -> Optional[Campaign]:
@@ -85,4 +101,3 @@ class CampaignRepository(BaseRepository[Campaign]):
             .limit(limit)
         )
         return [Campaign(**doc) async for doc in cursor]
-        return await self.collection.count_documents(filter_query or {})

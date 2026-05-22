@@ -41,6 +41,20 @@ class BaseRepository(Generic[T]):
             raise
         return document
 
+    async def bulk_insert(self, documents: list[T]) -> int:
+        """Insert many documents at once. Returns inserted count."""
+        if not documents:
+            return 0
+        docs = [d.model_dump() for d in documents]
+        try:
+            result = await self.collection.insert_many(docs, ordered=False)
+            count = len(result.inserted_ids)
+            logger.debug("Bulk-inserted %d docs into %s", count, self.COLLECTION)
+            return count
+        except Exception:
+            logger.exception("Failed bulk insert into %s", self.COLLECTION)
+            raise
+
     # ── Read ──────────────────────────────────────────────────────
 
     async def find_by_id(self, id_value: str) -> Optional[T]:

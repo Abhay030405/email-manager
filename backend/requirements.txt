@@ -5,6 +5,7 @@ pydantic>=2.0
 pydantic-settings>=2.0
 langchain>=0.1.0
 langgraph>=0.0.1
+langchain-openai
 openai>=1.0
 motor>=3.0
 pymongo>=4.0
@@ -17,3 +18,5 @@ faker>=22.0
 pytest>=9.0
 pytest-asyncio>=1.0
 mongomock-motor>=0.0.36
+
+

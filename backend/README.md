@@ -25,3 +25,6 @@ AI Multi-Agent Marketing Automation Platform - Backend Service
    ```bash
    uvicorn app.main:app --reload
    ```
+
+   OPENAI_API_KEY = "your_openai_api_key_here"
+
