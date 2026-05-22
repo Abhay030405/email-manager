@@ -344,39 +344,19 @@ async def test_mock_api_campaign_id_mapping(mock_db, monkeypatch):
 
     monkeypatch.setattr(cg.MongoDB, "get_db", classmethod(lambda cls: mock_db))
 
-    mock_execution_cls = MagicMock()
-    mock_execution_instance = MagicMock()
-    mock_execution_instance.execute_campaign = MagicMock(
-        return_value={
-            "execution_status": "completed",
-            "mock_api_campaign_ids": {"var-001": "mock-uuid-001"},
-            "metrics": {"emails_scheduled": 1, "executed_at": "2026-01-01T10:00:00Z", "errors": []},
-        }
-    )
-
-    import asyncio
-    mock_execution_instance.execute_campaign = lambda *a, **kw: asyncio.coroutine(
-        lambda: {
+    def _fake_execute_campaign(self, cid, variants):
+        return {
             "execution_status": "completed",
             "mock_api_campaign_ids": {"var-001": "mock-uuid-001"},
             "metrics": {"emails_scheduled": 1, "errors": []},
         }
-    )()
 
     def fake_loader(module_name, class_name):
         if class_name == "ExecutionAgent":
             return type(
                 "FakeExecutionAgent",
                 (),
-                {
-                    "execute_campaign": lambda self, cid, variants: asyncio.coroutine(
-                        lambda: {
-                            "execution_status": "completed",
-                            "mock_api_campaign_ids": {"var-001": "mock-uuid-001"},
-                            "metrics": {"emails_scheduled": 1, "errors": []},
-                        }
-                    )()
-                },
+                {"execute_campaign": _fake_execute_campaign},
             )
         return None
 
