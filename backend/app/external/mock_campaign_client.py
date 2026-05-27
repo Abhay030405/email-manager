@@ -273,6 +273,81 @@ class MockCampaignClient:
             return result
         return result.get("results", result.get("data", []))
 
+    def health_check(self) -> dict[str, Any]:
+        """Ping the Mock API root endpoint and return connectivity status.
+
+        Returns:
+            Dict with ``status`` ("ok" or "error"), ``latency_ms``, and
+            optionally ``detail`` on failure.
+        """
+        t0 = time.monotonic()
+        try:
+            self._request_with_retry("GET", "/", max_retries=1)
+            latency_ms = round((time.monotonic() - t0) * 1000, 2)
+            logger.info("Mock API health check OK (%.0fms)", latency_ms)
+            return {"status": "ok", "latency_ms": latency_ms}
+        except Exception as exc:
+            latency_ms = round((time.monotonic() - t0) * 1000, 2)
+            logger.warning("Mock API health check failed: %s", exc)
+            return {"status": "error", "latency_ms": latency_ms, "detail": str(exc)[:200]}
+
+    # ── Private validation helpers ─────────────────────────────────────────
+
+    def _log_api_call(
+        self,
+        operation: str,
+        params: dict[str, Any],
+        success: bool,
+        elapsed_ms: float,
+        error: str | None = None,
+    ) -> None:
+        """Emit a structured log entry for an API call."""
+        entry: dict[str, Any] = {
+            "operation": operation,
+            "success": success,
+            "elapsed_ms": elapsed_ms,
+            **params,
+        }
+        if error:
+            entry["error"] = error
+        if success:
+            logger.info("Mock API call succeeded", extra=entry)
+        else:
+            logger.error("Mock API call failed", extra=entry)
+
+    @staticmethod
+    def _validate_campaign_response(response: dict[str, Any]) -> None:
+        """Raise ``ValueError`` if the schedule_campaign response is malformed."""
+        required = {"campaign_id", "status"}
+        missing = required - response.keys()
+        if missing:
+            raise ValueError(f"schedule_campaign response missing fields: {missing}")
+        if not response.get("campaign_id"):
+            raise ValueError("schedule_campaign returned empty campaign_id")
+
+    @staticmethod
+    def _validate_metrics_response(response: dict[str, Any]) -> None:
+        """Raise ``ValueError`` if the get_campaign_metrics response is malformed."""
+        rate_fields = {"open_rate", "click_rate", "click_through_rate"}
+        missing = rate_fields - response.keys()
+        if missing:
+            raise ValueError(f"metrics response missing fields: {missing}")
+        for field in rate_fields:
+            val = response.get(field)
+            if val is not None and not (0.0 <= float(val) <= 1.0):
+                raise ValueError(f"metrics field '{field}' out of range [0, 1]: {val}")
+
+    @staticmethod
+    def _validate_customer_data(customer: dict[str, Any]) -> None:
+        """Raise ``ValueError`` if a customer record is missing required fields."""
+        required = {"customer_id"}
+        missing = required - customer.keys()
+        if missing:
+            raise ValueError(f"customer record missing fields: {missing}")
+        cid = customer.get("customer_id", "")
+        if not str(cid).startswith("CUST"):
+            raise ValueError(f"customer_id does not match CUST#### format: {cid!r}")
+
 
 def _extract_detail(response: requests.Response) -> str:
     """Pull a human-readable error message from an API error response."""

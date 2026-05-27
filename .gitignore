@@ -1,2 +1,477 @@
-venv
+# ============================================================
+#  CampaignX — comprehensive .gitignore
+#  Stack: Python · FastAPI · LangGraph · MongoDB · React · TypeScript · Vite
+# ============================================================
+
+
+# ────────────────────────────────────────────────────────────
+#  Python
+# ────────────────────────────────────────────────────────────
+
+# Bytecode / caches
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+
+# C extensions
+*.so
+*.pyd
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env.venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+*.egg
+.eggs/
+MANIFEST
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage
+.pytest_cache/
+.tox/
+.nox/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+coverage.json
+*.cover
+*.py,cover
+nosetests.xml
+test-results/
+junit.xml
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# pyright
+pyrightconfig.json.bak
+
+# Ruff
+.ruff_cache/
+
+# pytype
+.pytype/
+
+# Pyre
+.pyre/
+
+# Pyenv
+.python-version
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# Spyder
+.spyderproject.db
+.spyproject
+
+# Rope
+.ropeproject
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pdm
+.pdm.toml
+.pdm-python
+__pypackages__/
+
+# Poetry
+poetry.lock.bak
+
+# Pipenv
+Pipfile.lock.bak
+
+# uv
+.uv/
+uv.lock.bak
+
+
+# ────────────────────────────────────────────────────────────
+#  Environment & secrets  (NEVER commit these)
+# ────────────────────────────────────────────────────────────
+
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.cert
+*.crt
+secrets/
+credentials.json
+service-account.json
+gcp-key.json
+*.token
+auth.json
+
+
+# ────────────────────────────────────────────────────────────
+#  FastAPI / backend specific
+# ────────────────────────────────────────────────────────────
+
 backend/.env
+backend/.env.*
+!backend/.env.example
+backend/logs/
+backend/uploads/
+backend/static/uploads/
+backend/media/
+
+
+# ────────────────────────────────────────────────────────────
+#  LangChain / LangGraph / LangSmith
+# ────────────────────────────────────────────────────────────
+
+.langchain/
+.langsmith/
+langchain_cache/
+langgraph_cache/
+langchain.db
+langchain.db-journal
+vector_store/
+chroma/
+chroma_db/
+faiss_index/
+*.faiss
+*.pkl
+embeddings_cache/
+
+
+# ────────────────────────────────────────────────────────────
+#  OpenAI / AI provider caches
+# ────────────────────────────────────────────────────────────
+
+.openai_cache/
+llm_cache/
+prompt_cache/
+response_cache/
+
+
+# ────────────────────────────────────────────────────────────
+#  MongoDB / databases
+# ────────────────────────────────────────────────────────────
+
+data/db/
+mongodb_data/
+*.db
+*.sqlite
+*.sqlite3
+dump/
+mongodump/
+
+
+# ────────────────────────────────────────────────────────────
+#  Node.js / frontend
+# ────────────────────────────────────────────────────────────
+
+node_modules/
+.npm/
+.yarn/
+.pnp.*
+.yarn-integrity
+
+# Build outputs
+frontend/dist/
+frontend/dist-ssr/
+frontend/build/
+frontend/.vite/
+.turbo/
+
+# Package manager locks (keep only what you use — uncomment as needed)
+# package-lock.json
+# yarn.lock
+# bun.lock
+
+# Parcel
+.cache/
+.parcel-cache/
+
+# Vite / Rollup
+*.local
+
+# Next.js (in case of migration)
+.next/
+out/
+
+# Nuxt (in case of migration)
+.nuxt/
+
+# Storybook
+storybook-static/
+
+# Serverless
+.serverless/
+
+
+# ────────────────────────────────────────────────────────────
+#  TypeScript
+# ────────────────────────────────────────────────────────────
+
+*.tsbuildinfo
+tsconfig.tsbuildinfo
+
+
+# ────────────────────────────────────────────────────────────
+#  Test artifacts
+# ────────────────────────────────────────────────────────────
+
+# Vitest / Jest
+coverage/
+*.lcov
+.nyc_output/
+
+# Playwright
+test-results/
+playwright-report/
+playwright/.cache/
+blob-report/
+
+# Cypress
+cypress/videos/
+cypress/screenshots/
+cypress/downloads/
+
+
+# ────────────────────────────────────────────────────────────
+#  Logs
+# ────────────────────────────────────────────────────────────
+
+logs/
+*.log
+*.log.*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+pip-log.txt
+
+
+# ────────────────────────────────────────────────────────────
+#  Docker
+# ────────────────────────────────────────────────────────────
+
+.dockerignore.local
+docker-compose.override.yml
+docker-compose.local.yml
+docker-compose.*.local.yml
+.docker/
+
+
+# ────────────────────────────────────────────────────────────
+#  CI / CD
+# ────────────────────────────────────────────────────────────
+
+.github/workflows/*.local.yml
+.circleci/local/
+.buildkite/local/
+build-output/
+ci-artifacts/
+
+
+# ────────────────────────────────────────────────────────────
+#  IDEs — VS Code
+# ────────────────────────────────────────────────────────────
+
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/launch.json
+!.vscode/tasks.json
+*.code-workspace
+
+
+# ────────────────────────────────────────────────────────────
+#  IDEs — JetBrains (PyCharm, WebStorm, IntelliJ)
+# ────────────────────────────────────────────────────────────
+
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+atlassian-ide-plugin.xml
+
+
+# ────────────────────────────────────────────────────────────
+#  IDEs — other
+# ────────────────────────────────────────────────────────────
+
+# Vim
+*.swp
+*.swo
+*~
+.netrwhist
+Session.vim
+tags
+
+# Emacs
+\#*\#
+.\#*
+*.elc
+auto-save-list
+tramp
+.org-id-locations
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Eclipse
+.project
+.classpath
+.settings/
+
+# NetBeans
+nbproject/private/
+nbbuild/
+nbdist/
+.nb-gradle/
+
+
+# ────────────────────────────────────────────────────────────
+#  Operating system
+# ────────────────────────────────────────────────────────────
+
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+.AppleDouble
+.LSOverride
+*.icloud
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+*.stackdump
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+
+# ────────────────────────────────────────────────────────────
+#  Temporary / scratch files
+# ────────────────────────────────────────────────────────────
+
+*.tmp
+*.temp
+*.bak
+*.orig
+*.rej
+*.patch
+tmp/
+temp/
+scratch/
+sandbox/
+_tmp/
+_scratch/
+
+
+# ────────────────────────────────────────────────────────────
+#  Archives
+# ────────────────────────────────────────────────────────────
+
+*.tar
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+*.tgz
+*.zip
+*.7z
+*.rar
+*.gz
+*.bz2
+
+
+# ────────────────────────────────────────────────────────────
+#  Docs build artifacts
+# ────────────────────────────────────────────────────────────
+
+docs/_build/
+docs/site/
+site/
+.docusaurus/
+_site/
+
+
+# ────────────────────────────────────────────────────────────
+#  Monitoring / observability
+# ────────────────────────────────────────────────────────────
+
+.sentry/
+newrelic.ini
+apm-agent-log.txt
+
+
+# ────────────────────────────────────────────────────────────
+#  Terraform / infrastructure  (if added later)
+# ────────────────────────────────────────────────────────────
+
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+*.tfvars
+!example.tfvars
+
+
+# ────────────────────────────────────────────────────────────
+#  Miscellaneous
+# ────────────────────────────────────────────────────────────
+
+# Profiling
+*.prof
+*.lprof
+*.snakeviz
+
+# Compiled translations
+*.mo
+
+# Sphinx
+docs/api/_autosummary/
+
+# pytest-benchmark
+.benchmarks/
+
+

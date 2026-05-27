@@ -21,19 +21,26 @@ class MonitoringAgent(BaseAgent):
 
     For each mock_api_campaign_id:
     1. Calls GET /api/campaigns/{id}/metrics for aggregated stats.
-    2. Calls GET /api/campaigns/{id}/results for per-customer outcomes.
-    3. Persists metrics to MongoDB.
+    2. Validates the metrics response fields.
+    3. Calls GET /api/campaigns/{id}/results for per-customer outcomes.
+    4. Persists metrics to MongoDB.
+    5. Caches aggregated results in-memory to avoid redundant API calls.
     """
 
     def __init__(self) -> None:
         super().__init__(model_name="gpt-4", temperature=0.0, max_tokens=512)
         self._client = MockCampaignClient()
+        # campaign_id → aggregated result cache
+        self._cache: dict[str, dict[str, Any]] = {}
 
     async def execute(self, input_data: dict[str, Any]) -> dict[str, Any]:
-        """Delegate to collect_metrics using campaign_id from input_data."""
         campaign_id = input_data.get("campaign_id", "")
         mock_api_campaign_ids = input_data.get("mock_api_campaign_ids", {})
         return await self.collect_metrics(campaign_id, mock_api_campaign_ids)
+
+    def invalidate_cache(self, campaign_id: str) -> None:
+        """Remove cached metrics for a campaign so the next call re-fetches."""
+        self._cache.pop(campaign_id, None)
 
     async def collect_metrics(
         self,
@@ -42,9 +49,7 @@ class MonitoringAgent(BaseAgent):
     ) -> dict[str, Any]:
         """Collect performance metrics for all variants of a campaign.
 
-        Args:
-            campaign_id:          Internal campaign identifier.
-            mock_api_campaign_ids: variant_id → Mock API campaign_id mapping.
+        Returns cached result if already collected during this session.
 
         Returns:
             Dict with ``variant_metrics``, ``aggregates``, and ``customer_results``.
@@ -57,6 +62,10 @@ class MonitoringAgent(BaseAgent):
         if not mock_api_campaign_ids:
             return await self._load_metrics_from_db(campaign_id)
 
+        if campaign_id in self._cache:
+            logger.info("Returning cached metrics for campaign %s", campaign_id)
+            return self._cache[campaign_id]
+
         variant_metrics: list[dict[str, Any]] = []
         customer_results: list[dict[str, Any]] = []
         repo = MetricsRepository(MongoDB.get_db())
@@ -67,13 +76,17 @@ class MonitoringAgent(BaseAgent):
                     None,
                     lambda mid=mock_campaign_id: self._client.get_campaign_metrics(mid),
                 )
+
+                # Validate the response shape
+                try:
+                    self._client._validate_metrics_response(raw)
+                except ValueError as exc:
+                    logger.warning("Metrics response validation failed for %s: %s", mock_campaign_id, exc)
+
                 # Mock API returns rates as 0.0–1.0; convert to percentages for state
                 open_rate_raw = float(raw.get("open_rate", 0.0))
                 click_rate_raw = float(raw.get("click_rate", 0.0))
                 ctr_raw = float(raw.get("click_through_rate", 0.0))
-                open_rate_pct = open_rate_raw * 100
-                click_rate_pct = click_rate_raw * 100
-                ctr_pct = ctr_raw * 100
 
                 metric_entry: dict[str, Any] = {
                     "variant_id": variant_id,
@@ -81,14 +94,14 @@ class MonitoringAgent(BaseAgent):
                     "total_sent": int(raw.get("total_sent", 0)),
                     "unique_opens": int(raw.get("unique_opens", 0)),
                     "unique_clicks": int(raw.get("unique_clicks", 0)),
-                    "open_rate": open_rate_pct,
-                    "click_rate": click_rate_pct,
-                    "click_through_rate": ctr_pct,
+                    "open_rate": open_rate_raw * 100,
+                    "click_rate": click_rate_raw * 100,
+                    "click_through_rate": ctr_raw * 100,
                     "collected_at": datetime.now(tz=timezone.utc).isoformat(),
                 }
                 variant_metrics.append(metric_entry)
 
-                # Persist to MongoDB using raw 0.0-1.0 values (model constraint)
+                # Persist to MongoDB using raw 0.0-1.0 values
                 try:
                     metrics_model = Metrics(
                         variant_id=variant_id,
@@ -131,11 +144,13 @@ class MonitoringAgent(BaseAgent):
                 logger.warning("Per-customer results fetch failed for %s: %s", mock_campaign_id, exc)
 
         aggregates = _compute_aggregates(variant_metrics)
-        return {
+        result = {
             "variant_metrics": variant_metrics,
             "aggregates": aggregates,
             "customer_results": customer_results,
         }
+        self._cache[campaign_id] = result
+        return result
 
     async def _load_metrics_from_db(self, campaign_id: str) -> dict[str, Any]:
         repo = MetricsRepository(MongoDB.get_db())
@@ -152,11 +167,16 @@ def _compute_aggregates(variant_metrics: list[dict[str, Any]]) -> dict[str, Any]
     valid = [m for m in variant_metrics if "error" not in m]
     if not valid:
         return {}
+    total_sent = sum(m.get("total_sent", 0) for m in valid)
+    total_opens = sum(m.get("unique_opens", 0) for m in valid)
+    total_clicks = sum(m.get("unique_clicks", 0) for m in valid)
     return {
-        "avg_open_rate": sum(m["open_rate"] for m in valid) / len(valid),
-        "avg_click_rate": sum(m["click_rate"] for m in valid) / len(valid),
-        "avg_ctr": sum(m["click_through_rate"] for m in valid) / len(valid),
-        "total_sent": sum(m.get("total_sent", 0) for m in valid),
-        "total_opens": sum(m.get("unique_opens", 0) for m in valid),
-        "total_clicks": sum(m.get("unique_clicks", 0) for m in valid),
+        "avg_open_rate": round(sum(m["open_rate"] for m in valid) / len(valid), 4),
+        "avg_click_rate": round(sum(m["click_rate"] for m in valid) / len(valid), 4),
+        "avg_ctr": round(sum(m["click_through_rate"] for m in valid) / len(valid), 4),
+        "total_sent": total_sent,
+        "total_opens": total_opens,
+        "total_clicks": total_clicks,
+        "overall_open_rate": round(total_opens / total_sent * 100, 4) if total_sent else 0.0,
+        "overall_click_rate": round(total_clicks / total_sent * 100, 4) if total_sent else 0.0,
     }

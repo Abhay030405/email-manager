@@ -172,3 +172,81 @@ class MetricsRepository(BaseRepository[Metrics]):
             .sort("calculated_at", 1)
         )
         return [Metrics(**doc) async for doc in cursor]
+
+    # ── Phase 8 additions ─────────────────────────────────────────
+
+    async def create_bulk(self, metrics_list: list[Metrics]) -> list[Metrics]:
+        """Bulk-insert multiple Metrics documents."""
+        if not metrics_list:
+            return []
+        docs = [m.model_dump() for m in metrics_list]
+        await self.collection.insert_many(docs, ordered=False)
+        return metrics_list
+
+    async def get_latest_by_variant(
+        self, campaign_id: str, variant_id: str
+    ) -> Optional[Metrics]:
+        """Get the most recent metrics for a specific variant of a campaign."""
+        doc = await self.collection.find_one(
+            {"campaign_id": campaign_id, "variant_id": variant_id},
+            sort=[("calculated_at", -1)],
+        )
+        return Metrics(**doc) if doc else None
+
+    async def list_by_campaign(
+        self, campaign_id: str, skip: int = 0, limit: int = 100
+    ) -> list[Metrics]:
+        """List all metrics for a campaign with pagination."""
+        cursor = (
+            self.collection.find({"campaign_id": campaign_id})
+            .sort("calculated_at", -1)
+            .skip(skip)
+            .limit(limit)
+        )
+        return [Metrics(**doc) async for doc in cursor]
+
+    async def get_metrics_history(
+        self, campaign_id: str, days: int = 7
+    ) -> list[Metrics]:
+        """Get metrics from the last N days, oldest first."""
+        from datetime import timedelta
+        since = datetime.utcnow() - timedelta(days=days)
+        cursor = (
+            self.collection.find(
+                {"campaign_id": campaign_id, "calculated_at": {"$gte": since}}
+            )
+            .sort("calculated_at", 1)
+        )
+        return [Metrics(**doc) async for doc in cursor]
+
+    async def calculate_trend(
+        self,
+        campaign_id: str,
+        metric_name: str,
+        window_hours: int = 24,
+    ) -> str:
+        """Calculate trend direction for a metric over the last N hours.
+
+        Returns "improving", "stable", or "declining".
+        """
+        from datetime import timedelta
+        since = datetime.utcnow() - timedelta(hours=window_hours)
+        cursor = (
+            self.collection.find(
+                {"campaign_id": campaign_id, "calculated_at": {"$gte": since}}
+            )
+            .sort("calculated_at", 1)
+        )
+        docs = [Metrics(**doc) async for doc in cursor]
+        if len(docs) < 2:
+            return "stable"
+        first_val = getattr(docs[0], metric_name, 0.0) or 0.0
+        last_val = getattr(docs[-1], metric_name, 0.0) or 0.0
+        if first_val == 0:
+            return "stable"
+        change_pct = (last_val - first_val) / first_val * 100
+        if change_pct > 5:
+            return "improving"
+        if change_pct < -5:
+            return "declining"
+        return "stable"
