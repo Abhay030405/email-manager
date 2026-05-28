@@ -1,0 +1,79 @@
+name: Tests
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master, develop]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      mongodb:
+        image: mongo:6.0
+        options: >-
+          --health-cmd "mongosh --eval 'db.runCommand({ping:1})'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 27017:27017
+
+    env:
+      MONGODB_URL: mongodb://localhost:27017
+      MONGODB_DB_NAME: campaignx_test
+      ENVIRONMENT: development
+      OPENAI_API_KEY: test-key-not-real
+      MOCK_CAMPAIGN_API_URL: https://mock-campaign-api.onrender.com
+      SECRET_KEY: test-secret-key-for-ci
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Create virtual environment
+        run: python -m venv .venv
+
+      - name: Install dependencies
+        run: |
+          .venv/bin/pip install --upgrade pip
+          .venv/bin/pip install -r requirements.txt
+          .venv/bin/pip install pytest pytest-asyncio pytest-cov pytest-mock mongomock-motor faker factory-boy httpx locust
+
+      - name: Run unit tests
+        run: |
+          .venv/bin/pytest tests/unit tests/test_agents tests/test_repositories \
+            tests/test_services tests/test_utils \
+            -v --cov=app --cov-report=xml --cov-report=term-missing \
+            -m "not slow and not e2e and not performance"
+
+      - name: Run API tests
+        run: |
+          .venv/bin/pytest tests/test_api tests/api \
+            -v --cov=app --cov-report=xml --cov-append \
+            -m "not slow"
+
+      - name: Run integration tests
+        run: |
+          .venv/bin/pytest tests/integration tests/test_orchestration tests/test_external \
+            -v --cov=app --cov-report=xml --cov-append \
+            -m "not slow"
+
+      - name: Run error handling tests
+        run: |
+          .venv/bin/pytest tests/error_handling \
+            -v --cov=app --cov-report=xml --cov-append
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage.xml
+          fail_ci_if_error: false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}

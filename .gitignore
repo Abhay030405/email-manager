@@ -474,4 +474,6 @@ docs/api/_autosummary/
 # pytest-benchmark
 .benchmarks/
 
+.claude
 
+/docs/untrack
