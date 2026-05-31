@@ -6,10 +6,27 @@ and "KYC status".
 """
 
 from datetime import datetime
+from enum import Enum
 from typing import Any, ClassVar, Literal, Optional
 import re
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+
+class Gender(str, Enum):
+    """Gender enum used by segmentation and analytics agents."""
+
+    MALE = "Male"
+    FEMALE = "Female"
+    OTHER = "Other"
+
+
+class ActivityStatus(str, Enum):
+    """Customer activity level used by segmentation logic."""
+
+    ACTIVE = "active"
+    INACTIVE = "inactive"
+    DORMANT = "dormant"
 
 
 class Customer(BaseModel):
@@ -24,7 +41,13 @@ class Customer(BaseModel):
     Age: int = Field(..., ge=0, le=120)
     Gender: Literal["Male", "Female", "Other"]
     Marital_Status: Literal["Married", "Single", "Divorced", "Widowed"] = "Single"
-    Family_Size: int = Field(1, ge=1, le=10)
+    Family_Size: int = Field(1, ge=0, le=10)
+
+    @field_validator("Family_Size", mode="before")
+    @classmethod
+    def coerce_family_size(cls, v: int) -> int:
+        """Mock API sends 0 for some records; treat as single-person household."""
+        return max(int(v), 1)
     Dependent_count: int = Field(
         0, ge=0, alias="Dependent count"
     )
@@ -82,6 +105,22 @@ class Customer(BaseModel):
         if not v or not v.strip():
             raise ValueError("City must not be empty")
         return v.strip()
+
+    # ── Derived properties ────────────────────────────────────────
+
+    @property
+    def activity_status(self) -> "ActivityStatus":
+        """Derive activity status from engagement signals.
+
+        Existing customer with app installed → active.
+        Existing customer without app        → inactive.
+        Non-customer                         → dormant.
+        """
+        if self.Existing_Customer == "Y" and self.App_Installed == "Y":
+            return ActivityStatus.ACTIVE
+        if self.Existing_Customer == "Y":
+            return ActivityStatus.INACTIVE
+        return ActivityStatus.DORMANT
 
     # ── Serialization ─────────────────────────────────────────────
 

@@ -28,7 +28,7 @@ class OptimizationAgent(BaseAgent):
     """
 
     def __init__(self) -> None:
-        super().__init__(model_name="gpt-4", temperature=0.3, max_tokens=2000)
+        super().__init__(temperature=0.3, max_tokens=2000)
 
     # ── BaseAgent protocol ────────────────────────────────────────────────────
 

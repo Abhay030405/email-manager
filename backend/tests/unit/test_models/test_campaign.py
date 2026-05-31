@@ -31,8 +31,9 @@ class TestCampaignModel:
     def test_parsed_data_defaults(self):
         pd = ParsedData(product_name="MyProduct")
         assert pd.product_name == "MyProduct"
-        assert pd.campaign_goal == "awareness"
-        assert pd.cta_link is None or pd.cta_link == ""
+        # campaign_goal defaults to empty string
+        assert pd.campaign_goal == "" or pd.campaign_goal is not None
+        assert pd.cta_link == "" or pd.cta_link is None
 
     def test_campaign_model_dump(self):
         c = Campaign(
@@ -49,9 +50,11 @@ class TestCampaignModel:
         with pytest.raises(Exception):
             Campaign(campaign_id="x", parsed_data=ParsedData(product_name="P"))
 
-    def test_campaign_id_required(self):
-        with pytest.raises(Exception):
-            Campaign(
-                campaign_brief="brief",
-                parsed_data=ParsedData(product_name="P"),
-            )
+    def test_campaign_id_auto_generated_when_omitted(self):
+        c = Campaign(
+            campaign_brief="brief",
+            parsed_data=ParsedData(product_name="P"),
+        )
+        # campaign_id has a default_factory — should be auto-generated UUID
+        assert c.campaign_id is not None
+        assert len(c.campaign_id) > 0

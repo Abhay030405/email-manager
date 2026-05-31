@@ -11,7 +11,7 @@ import random
 
 import httpx
 
-from app.core.config import settings
+from app.core.config import get_settings
 from app.models.customer import Customer
 from app.models.campaign import Campaign, CampaignStatus, ParsedData
 from app.models.variant import CampaignVariant, VariantStatus
@@ -21,8 +21,8 @@ from app.models.segment import Segment, SegmentCriteria
 logger = logging.getLogger(__name__)
 random.seed(42)
 
-MOCK_API_BASE = settings.MOCK_CAMPAIGN_API_URL
-MOCK_API_TIMEOUT = settings.MOCK_API_TIMEOUT
+MOCK_API_BASE = get_settings().MOCK_CAMPAIGN_API_URL
+MOCK_API_TIMEOUT = get_settings().MOCK_API_TIMEOUT
 
 # ── Indian-context campaign templates ─────────────────────────────
 

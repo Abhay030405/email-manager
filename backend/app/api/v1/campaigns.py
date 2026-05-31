@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
+from pydantic import BaseModel, Field
 
 from app.api.deps import CampaignRepoDep, PageDep, SegmentRepoDep, VariantRepoDep
 from app.models.campaign import Campaign, CampaignStatus
@@ -11,6 +12,93 @@ from app.models.schemas import CampaignCreate, CampaignUpdate
 from app.schemas.common import PaginatedResponse, WorkflowStatusResponse
 
 router = APIRouter(prefix="/campaigns", tags=["campaigns"])
+
+
+# ── Brief parsing schemas ─────────────────────────────────────────────────────
+
+class ParseBriefRequest(BaseModel):
+    brief_text: str = Field(..., min_length=1, description="Raw campaign brief text")
+
+
+class ParsedBriefSections(BaseModel):
+    product_details: dict[str, str]
+    target_audience: dict[str, str]
+    campaign_goal: dict[str, str]
+    campaign_preferences: dict[str, str]
+
+
+# ── Tone mapping helper ───────────────────────────────────────────────────────
+
+_TONE_MAP: dict[str, str] = {
+    "professional": "Formal",
+    "formal": "Formal",
+    "casual": "Friendly",
+    "friendly": "Friendly",
+    "urgent": "Urgent",
+}
+
+
+@router.post(
+    "/parse-brief",
+    responses={422: {"description": "Brief too vague to extract required fields"}, 500: {"description": "LLM parsing error"}},
+    summary="Parse a campaign brief with LLM and return structured form data",
+)
+async def parse_campaign_brief(body: ParseBriefRequest) -> ParsedBriefSections:
+    """Use the CampaignBriefParserAgent to extract structured form data from a brief."""
+    try:
+        from app.agents.brief_parser import CampaignBriefParserAgent
+
+        agent = CampaignBriefParserAgent()
+        result: dict[str, Any] = await agent.execute({"brief_text": body.brief_text})
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"LLM parsing failed: {exc}") from exc
+
+    # Map preferred_tone enum → form label
+    raw_tone = (result.get("preferred_tone") or "").lower()
+    email_tone = _TONE_MAP.get(raw_tone, "")
+
+    # Build content_hints from key_messages + constraints
+    key_messages: list[str] = result.get("key_messages") or []
+    constraints: str = result.get("constraints") or ""
+    content_hints_parts = [", ".join(key_messages)] if key_messages else []
+    if constraints:
+        content_hints_parts.append(constraints)
+    content_hints = ". ".join(content_hints_parts)
+
+    # Map campaign_goal enum → human-readable fallback label
+    _GOAL_LABELS: dict[str, str] = {
+        "awareness": "Increase awareness",
+        "conversion": "Drive sign-ups / conversions",
+        "retention": "Retain existing customers",
+        "engagement": "Maximize engagement",
+    }
+    raw_goal = (result.get("campaign_goal") or "").lower()
+    fallback_label = _GOAL_LABELS.get(raw_goal, result.get("campaign_goal") or "")
+    # Prefer the full descriptive objective extracted from the brief
+    objective = result.get("campaign_objective") or fallback_label
+
+    return ParsedBriefSections(
+        product_details={
+            "product_name": result.get("product_name") or "",
+            "product_description": result.get("product_description") or "",
+            "cta_link": result.get("cta_link") or "",
+        },
+        target_audience={
+            "who_to_target": result.get("audience_who") or result.get("target_audience") or "",
+            "location_preference": result.get("audience_location") or "",
+            "other_filters": result.get("audience_filters") or "",
+        },
+        campaign_goal={
+            "objective": objective,
+        },
+        campaign_preferences={
+            "email_tone": email_tone,
+            "campaign_name": result.get("campaign_name") or "",
+            "content_hints": content_hints,
+        },
+    )
 
 _NOT_FOUND = "Campaign not found"
 _404 = {404: {"description": _NOT_FOUND}}
@@ -33,7 +121,7 @@ async def list_campaigns(repo: CampaignRepoDep, page: PageDep) -> PaginatedRespo
 
 @router.post("", status_code=201, summary="Create a campaign")
 async def create_campaign(body: CampaignCreate, repo: CampaignRepoDep) -> dict[str, Any]:
-    campaign = Campaign(**body.model_dump())
+    campaign = Campaign(**body.model_dump(exclude_none=True))
     await repo.create(campaign)
     return campaign.model_dump()
 
@@ -89,7 +177,7 @@ async def run_workflow(campaign_id: str, repo: CampaignRepoDep) -> WorkflowStatu
     try:
         from app.orchestration.campaign_graph import run_campaign_workflow
 
-        result = await run_campaign_workflow(campaign_id)
+        result = await run_campaign_workflow(campaign_id, campaign.campaign_brief)
         return WorkflowStatusResponse(
             campaign_id=campaign_id,
             status=result.get("status", "started"),
@@ -158,7 +246,7 @@ async def start_campaign(
 
     from app.orchestration.campaign_graph import run_campaign_workflow  # noqa: PLC0415
 
-    background_tasks.add_task(run_campaign_workflow, campaign_id)
+    background_tasks.add_task(run_campaign_workflow, campaign_id, campaign.campaign_brief)
     return WorkflowStatusResponse(
         campaign_id=campaign_id,
         status="started",

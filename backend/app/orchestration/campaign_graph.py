@@ -11,8 +11,9 @@ from typing import Any, Awaitable, Callable
 from app.db.mongodb import MongoDB
 from app.db.repositories.campaign_repo import CampaignRepository
 from app.db.repositories.customer_repo import CustomerRepository
+from app.db.repositories.segment_repo import SegmentRepository
+from app.models.segment import Segment
 from app.db.repositories.variant_repo import VariantRepository
-from app.db.repositories.customer_repo import CustomerRepository
 from app.external.mock_campaign_client import MockCampaignClient, MockCampaignAPIError
 from app.models.campaign import CampaignStatus
 from app.models.customer import Customer
@@ -156,18 +157,30 @@ def _fallback_segmentation(state: CampaignState) -> CampaignState:
 		if age >= 50:
 			segments["seniors"].append(cid)
 
-	next_state["segments"] = {name: ids for name, ids in segments.items() if ids}
+	filtered_segments = {name: ids for name, ids in segments.items() if ids}
+
+	# When no customers are available (empty DB + Mock API unavailable), create a
+	# placeholder segment so downstream nodes (strategy, content_gen) can proceed.
+	if not filtered_segments:
+		logger.warning(
+			"_fallback_segmentation: no customers available — creating placeholder 'general_audience' segment"
+		)
+		filtered_segments = {
+			"general_audience": []
+		}
+
+	next_state["segments"] = filtered_segments
 	checkpoint_data = dict(next_state.get("checkpoint_data", {}))
 	checkpoint_data["segments_detail"] = [
 		{
 			"segment_name": name,
-			"description": f"Fallback segment: {name}",
+			"description": f"Fallback segment: {name}" if ids else "General audience — no customer data available",
 			"customer_ids": ids,
 			"size": len(ids),
 			"targeting_priority": 3,
 			"recommended_approach": "Use broad, benefits-driven messaging.",
 		}
-		for name, ids in next_state["segments"].items()
+		for name, ids in filtered_segments.items()
 	]
 	next_state["checkpoint_data"] = checkpoint_data
 	return next_state
@@ -314,7 +327,23 @@ async def parse_brief_node(state: CampaignState) -> CampaignState:
 			else {"brief_text": current_state["campaign_brief"]},
 		)
 		next_state = CampaignState(**dict(current_state))
-		next_state["parsed_data"] = parsed_data if isinstance(parsed_data, dict) else dict(parsed_data)
+		llm_dict = parsed_data if isinstance(parsed_data, dict) else dict(parsed_data)
+
+		# Merge: pre-supplied (user-confirmed) values win over LLM extraction.
+		# Any field the user left empty falls back to what the LLM extracted.
+		existing = dict(current_state.get("parsed_data") or {})
+		merged: dict[str, Any] = {**llm_dict}
+		for key, user_val in existing.items():
+			if user_val not in (None, "", []):
+				merged[key] = user_val
+		next_state["parsed_data"] = merged
+
+		# Persist the rich parsed data back to the campaign document
+		campaign_repo = CampaignRepository(MongoDB.get_db())
+		await campaign_repo.update(
+			current_state["campaign_id"],
+			{"parsed_data": merged},
+		)
 		return next_state
 
 	return await _execute_node_with_retries(
@@ -354,21 +383,34 @@ async def fetch_customers_node(state: CampaignState) -> CampaignState:
 				if len(batch) < MOCK_API_PAGE_SIZE:
 					break
 
-			logger.info("Fetched %d customers from Mock API", len(all_customers))
+			if not all_customers:
+				logger.warning(
+					"fetch_customers: Mock API returned 0 customers — falling back to MongoDB cache"
+				)
+				repo = CustomerRepository(MongoDB.get_db())
+				cached = await repo.find_all(limit=10_000)
+				next_state["customers"] = [c.model_dump() for c in cached]
+				next_state["customer_count"] = len(next_state["customers"])
+				if not cached:
+					logger.warning(
+						"fetch_customers: MongoDB cache also empty — run: python scripts/seed_database.py"
+					)
+			else:
+				logger.info("Fetched %d customers from Mock API", len(all_customers))
 
-			# Cache to MongoDB
-			repo = CustomerRepository(MongoDB.get_db())
-			customers_to_sync = []
-			for raw in all_customers:
-				try:
-					customers_to_sync.append(Customer.from_mock_api(raw))
-				except Exception as parse_exc:
-					logger.debug("Skipping invalid customer record: %s", parse_exc)
-			if customers_to_sync:
-				await repo.sync_from_mock_api(customers_to_sync)
+				# Cache to MongoDB
+				repo = CustomerRepository(MongoDB.get_db())
+				customers_to_sync = []
+				for raw in all_customers:
+					try:
+						customers_to_sync.append(Customer.from_mock_api(raw))
+					except Exception as parse_exc:
+						logger.debug("Skipping invalid customer record: %s", parse_exc)
+				if customers_to_sync:
+					await repo.sync_from_mock_api(customers_to_sync)
 
-			next_state["customers"] = all_customers
-			next_state["customer_count"] = len(all_customers)
+				next_state["customers"] = all_customers
+				next_state["customer_count"] = len(all_customers)
 
 		except Exception as exc:
 			# Fall back to MongoDB cache
@@ -382,6 +424,10 @@ async def fetch_customers_node(state: CampaignState) -> CampaignState:
 			cached = await repo.find_all(limit=10_000)
 			next_state["customers"] = [c.model_dump() for c in cached]
 			next_state["customer_count"] = len(next_state["customers"])
+			if not cached:
+				logger.warning(
+					"fetch_customers: MongoDB cache also empty — run: python scripts/seed_database.py"
+				)
 
 		next_state["mock_api_errors"] = mock_api_errors
 		return next_state
@@ -446,6 +492,20 @@ async def segmentation_node(state: CampaignState) -> CampaignState:
 		checkpoint_data = dict(next_state.get("checkpoint_data", {}))
 		checkpoint_data["segments_detail"] = segment_entries
 		next_state["checkpoint_data"] = checkpoint_data
+
+		# Persist segments to MongoDB so the API can serve them
+		segment_repo = SegmentRepository(MongoDB.get_db())
+		campaign_id = current_state["campaign_id"]
+		await segment_repo.delete_by_campaign(campaign_id)
+		for entry in segment_entries:
+			seg = Segment(
+				campaign_id=campaign_id,
+				segment_name=entry.get("segment_name", ""),
+				description=entry.get("description", ""),
+				customer_ids=entry.get("customer_ids", []),
+			)
+			await segment_repo.create(seg)
+
 		return next_state
 
 	return await _execute_node_with_retries(
@@ -515,6 +575,7 @@ async def content_generation_node(state: CampaignState) -> CampaignState:
 		segment_entries = checkpoint_data.get("segments_detail", [])
 		segment_map = {entry.get("segment_name"): entry for entry in segment_entries}
 
+		campaign_prefix = current_state["campaign_id"].split("-")[0]
 		variants: list[dict[str, Any]] = []
 		for index, segment_name in enumerate(selected_segments, start=1):
 			segment_payload = segment_map.get(
@@ -528,7 +589,7 @@ async def content_generation_node(state: CampaignState) -> CampaignState:
 					"recommended_approach": "Use benefit-led messaging.",
 				},
 			)
-			variant_id = f"variant_{index}"
+			variant_id = f"{campaign_prefix}_v{index}"
 			content = await _maybe_call_agent_method(
 				agent,
 				"generate_content",
@@ -563,7 +624,7 @@ async def content_generation_node(state: CampaignState) -> CampaignState:
 
 			variant_doc = CampaignVariant(
 				campaign_id=current_state["campaign_id"],
-				variant_id=content.get("variant_id", variant_id),
+				variant_id=variant_id,
 				segment_name=segment_name,
 				subject_line=(content.get("subject_lines") or ["Your update is ready"])[0],
 				email_body=content.get("email_body", "A" * 60),
@@ -595,6 +656,11 @@ async def approval_node(state: CampaignState) -> CampaignState:
 
 	async def _op(current_state: CampaignState) -> CampaignState:
 		campaign_id = current_state["campaign_id"]
+
+		# Honour force-rejection set by wait_approval_node — prevents infinite loop
+		if str(current_state.get("approval_status", "")).lower() == "rejected":
+			return CampaignState(**dict(current_state))
+
 		approval_status = "pending"
 
 		approval_agent_cls = _load_optional_agent("app.agents.approval", "ApprovalAgent")
@@ -618,7 +684,10 @@ async def approval_node(state: CampaignState) -> CampaignState:
 					approval_status = "approved"
 				elif campaign.status == CampaignStatus.REJECTED:
 					approval_status = "rejected"
-				elif campaign.status == CampaignStatus.PENDING_APPROVAL:
+				else:
+					# Transition DRAFT → PENDING_APPROVAL so the human can act via API
+					if campaign.status == CampaignStatus.DRAFT:
+						await campaign_repo.update_status(campaign_id, CampaignStatus.PENDING_APPROVAL)
 					approval_status = "pending"
 
 		if approval_status not in {"approved", "rejected", "pending"}:

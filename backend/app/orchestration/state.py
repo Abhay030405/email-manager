@@ -137,7 +137,7 @@ class StateManager:
 	"""Persist and restore workflow state/checkpoints in MongoDB."""
 
 	def __init__(self, db: AsyncIOMotorDatabase | None = None) -> None:
-		self.db = db or MongoDB.get_db()
+		self.db = db if db is not None else MongoDB.get_db()
 		self.state_collection = self.db["workflow_states"]
 		self.checkpoint_collection = self.db["workflow_checkpoints"]
 		self.api_mapping_collection = self.db["api_mappings"]

@@ -10,6 +10,7 @@ import CampaignApproval from "./pages/CampaignApproval.tsx";
 import CampaignMetrics from "./pages/CampaignMetrics.tsx";
 import Campaigns from "./pages/Campaigns.tsx";
 import CampaignDetail from "./pages/CampaignDetail.tsx";
+import EmailVariantPage from "./pages/EmailVariantPage.tsx";
 import NotFound from "./pages/NotFound.tsx";
 import { CampaignsProvider } from "./context/CampaignsContext.tsx";
 
@@ -30,6 +31,7 @@ const App = () => (
             <Route path="/campaigns/approval" element={<CampaignApproval />} />
             <Route path="/campaigns/metrics" element={<CampaignMetrics />} />
             <Route path="/campaigns/:id" element={<CampaignDetail />} />
+            <Route path="/campaigns/:id/:variantId" element={<EmailVariantPage />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>

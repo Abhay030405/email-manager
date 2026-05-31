@@ -1,6 +1,10 @@
-"""Factory Boy factories for Customer test data (Mock API 18-field schema)."""
+"""Customer test data factories (Faker-based, no factory-boy required)."""
 
-import factory
+from __future__ import annotations
+
+import random
+from datetime import datetime
+
 from faker import Faker
 
 fake = Faker("en_IN")
@@ -8,56 +12,77 @@ fake = Faker("en_IN")
 _OCCUPATIONS = ["Engineer", "Manager", "Doctor", "Teacher", "Analyst", "Designer", "Architect"]
 _OCC_TYPES = ["Full-time", "Part-time", "Self-employed", "Retired", "Student"]
 _CITIES = ["Mumbai", "Delhi", "Bangalore", "Chennai", "Hyderabad", "Pune", "Kolkata", "Jaipur"]
+_YN = ["Y", "N"]
+
+_counter = [0]
 
 
-class CustomerFactory(factory.Factory):
-    class Meta:
-        model = dict
-
-    customer_id = factory.Sequence(lambda n: f"CUST{n + 1:04d}")
-    Full_name = factory.LazyFunction(lambda: fake.name())
-    email = factory.LazyFunction(lambda: fake.email())
-    Age = factory.LazyFunction(lambda: fake.random_int(18, 80))
-    Gender = factory.LazyChoice(["Male", "Female"])
-    Marital_Status = factory.LazyChoice(["Single", "Married", "Divorced", "Widowed"])
-    Family_Size = factory.LazyFunction(lambda: fake.random_int(1, 6))
-    Dependent_count = factory.LazyFunction(lambda: fake.random_int(0, 3))
-    Occupation = factory.LazyChoice(_OCCUPATIONS)
-    Occupation_type = factory.LazyChoice(_OCC_TYPES)
-    Monthly_Income = factory.LazyFunction(lambda: fake.random_int(15000, 250000))
-    KYC_status = factory.LazyChoice(["Y", "N"])
-    City = factory.LazyChoice(_CITIES)
-    Kids_in_Household = factory.LazyFunction(lambda: fake.random_int(0, 3))
-    App_Installed = factory.LazyChoice(["Y", "N"])
-    Existing_Customer = factory.LazyChoice(["Y", "N"])
-    Credit_score = factory.LazyFunction(lambda: fake.random_int(300, 850))
-    Social_Media_Active = factory.LazyChoice(["Y", "N"])
+def _next_customer_id() -> str:
+    _counter[0] += 1
+    return f"CUST{_counter[0]:04d}"
 
 
-class YoungProfessionalCustomerFactory(CustomerFactory):
-    """Factory preset for young professional segment."""
-    Age = factory.LazyFunction(lambda: fake.random_int(25, 35))
-    Occupation_type = "Full-time"
-    Occupation = factory.LazyChoice(["Engineer", "Manager", "Analyst", "Designer"])
-    Monthly_Income = factory.LazyFunction(lambda: fake.random_int(50000, 150000))
-    App_Installed = "Y"
-    Social_Media_Active = "Y"
-    Credit_score = factory.LazyFunction(lambda: fake.random_int(650, 850))
+class CustomerFactory:
+    @classmethod
+    def create(cls, **kwargs) -> dict:
+        data = {
+            "customer_id": _next_customer_id(),
+            "Full_name": fake.name(),
+            "email": fake.email(),
+            "Age": random.randint(18, 80),
+            "Gender": random.choice(["Male", "Female"]),
+            "Marital_Status": random.choice(["Single", "Married", "Divorced", "Widowed"]),
+            "Family_Size": random.randint(1, 6),
+            "Dependent_count": random.randint(0, 3),
+            "Occupation": random.choice(_OCCUPATIONS),
+            "Occupation_type": random.choice(_OCC_TYPES),
+            "Monthly_Income": random.randint(15000, 250000),
+            "KYC_status": random.choice(_YN),
+            "City": random.choice(_CITIES),
+            "Kids_in_Household": random.randint(0, 3),
+            "App_Installed": random.choice(_YN),
+            "Existing_Customer": random.choice(_YN),
+            "Credit_score": random.randint(300, 850),
+            "Social_Media_Active": random.choice(_YN),
+        }
+        data.update(kwargs)
+        return data
 
+    @classmethod
+    def create_batch(cls, n: int, **kwargs) -> list[dict]:
+        return [cls.create(**kwargs) for _ in range(n)]
 
-class SeniorCustomerFactory(CustomerFactory):
-    """Factory preset for senior segment."""
-    Age = factory.LazyFunction(lambda: fake.random_int(55, 75))
-    Occupation_type = factory.LazyChoice(["Retired", "Part-time"])
-    Monthly_Income = factory.LazyFunction(lambda: fake.random_int(20000, 80000))
-    App_Installed = "N"
+    @classmethod
+    def create_young_professional(cls, **kwargs) -> dict:
+        return cls.create(
+            Age=random.randint(25, 35),
+            Occupation_type="Full-time",
+            Occupation=random.choice(["Engineer", "Manager", "Analyst", "Designer"]),
+            Monthly_Income=random.randint(50000, 150000),
+            App_Installed="Y",
+            Social_Media_Active="Y",
+            Credit_score=random.randint(650, 850),
+            **kwargs,
+        )
 
+    @classmethod
+    def create_senior(cls, **kwargs) -> dict:
+        return cls.create(
+            Age=random.randint(55, 75),
+            Occupation_type=random.choice(["Retired", "Part-time"]),
+            Monthly_Income=random.randint(20000, 80000),
+            App_Installed="N",
+            **kwargs,
+        )
 
-class StudentCustomerFactory(CustomerFactory):
-    """Factory preset for student segment."""
-    Age = factory.LazyFunction(lambda: fake.random_int(18, 24))
-    Occupation_type = "Student"
-    Occupation = "Student"
-    Monthly_Income = factory.LazyFunction(lambda: fake.random_int(5000, 25000))
-    Existing_Customer = "N"
-    Credit_score = factory.LazyFunction(lambda: fake.random_int(300, 600))
+    @classmethod
+    def create_student(cls, **kwargs) -> dict:
+        return cls.create(
+            Age=random.randint(18, 24),
+            Occupation_type="Student",
+            Occupation="Student",
+            Monthly_Income=random.randint(5000, 25000),
+            Existing_Customer="N",
+            Credit_score=random.randint(300, 600),
+            **kwargs,
+        )

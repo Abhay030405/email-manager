@@ -12,6 +12,7 @@ export interface Segment {
 }
 
 export interface EmailVariant {
+  variantId: string;
   variant: string;
   subject: string;
   body: string;
@@ -38,6 +39,10 @@ export interface Campaign {
   id: string;
   name: string;
   product: string;
+  productDescription: string;
+  ctaLink: string;
+  audienceTags: string[];
+  contentHints: string[];
   brief: string;
   goal: string;
   budget: string;
@@ -82,18 +87,21 @@ const baseSegments: Segment[] = [
 
 const baseVariants: EmailVariant[] = [
   {
+    variantId: "mock_v1",
     variant: "A",
     subject: "Unlock Exclusive Early Access — Just for You",
     body: "Hi {{first_name}}, we're launching something special and wanted you to be the first to know. As a valued customer, you get exclusive early access to our newest collection.",
     segment: "Urban Professionals",
   },
   {
+    variantId: "mock_v2",
     variant: "B",
     subject: "🔥 Trending Now: Don't Miss Out on What's New",
     body: "Hey {{first_name}}! The wait is over — our latest drop is here and it's already turning heads. Your feed is about to get a whole lot better.",
     segment: "Young Trendsetters",
   },
   {
+    variantId: "mock_v3",
     variant: "C",
     subject: "Save 25% This Week — Your Exclusive Offer",
     body: "Hi {{first_name}}, for a limited time, enjoy 25% off our most popular items. We know you love a great deal — this one is too good to pass up.",
@@ -128,6 +136,10 @@ export const initialCampaigns: Campaign[] = [
     id: "summer-sale-2025",
     name: "Summer Sale 2025",
     product: "Summer Collection",
+    productDescription: "Vibrant seasonal apparel and accessories for urban shoppers.",
+    ctaLink: "",
+    audienceTags: [],
+    contentHints: [],
     brief: "Drive summer collection sales with a vibrant, time-limited promotion targeting urban shoppers and young trendsetters.",
     goal: "Sales Conversion",
     budget: "$12,500",
@@ -142,6 +154,10 @@ export const initialCampaigns: Campaign[] = [
     id: "product-launch-x",
     name: "Product Launch — Series X",
     product: "Series X Headphones",
+    productDescription: "Premium audio headphones with exclusive early-access offers.",
+    ctaLink: "",
+    audienceTags: [],
+    contentHints: [],
     brief: "Build awareness and pre-orders for the new Series X audio line with premium positioning and exclusive early-access offers.",
     goal: "Pre-orders",
     budget: "$18,000",
@@ -156,6 +172,10 @@ export const initialCampaigns: Campaign[] = [
     id: "retention-q3",
     name: "Customer Retention Q3",
     product: "Loyalty Program",
+    productDescription: "Personalised rewards program designed to re-engage lapsed customers.",
+    ctaLink: "",
+    audienceTags: [],
+    contentHints: [],
     brief: "Re-engage lapsed customers with personalized offers and a refreshed loyalty program to lift Q3 retention by 12%.",
     goal: "Retention",
     budget: "$8,200",
@@ -170,6 +190,10 @@ export const initialCampaigns: Campaign[] = [
     id: "holiday-gift-guide",
     name: "Holiday Gift Guide",
     product: "Holiday Catalog",
+    productDescription: "Curated gift recommendations across price tiers for the holiday season.",
+    ctaLink: "",
+    audienceTags: [],
+    contentHints: [],
     brief: "Showcase curated gift recommendations across price tiers to drive holiday season conversions and average order value.",
     goal: "Sales Conversion",
     budget: "$22,000",
@@ -184,6 +208,10 @@ export const initialCampaigns: Campaign[] = [
     id: "welcome-series",
     name: "Welcome Series Redesign",
     product: "Onboarding Flow",
+    productDescription: "Five-email automated sequence to lift new-subscriber activation rates.",
+    ctaLink: "",
+    audienceTags: [],
+    contentHints: [],
     brief: "Refresh the new-subscriber welcome flow to lift activation rates with a five-email automated sequence.",
     goal: "Activation",
     budget: "$5,500",
@@ -198,6 +226,10 @@ export const initialCampaigns: Campaign[] = [
     id: "flash-sale-weekend",
     name: "Flash Sale Weekend",
     product: "Site-wide Flash Sale",
+    productDescription: "48-hour site-wide discount with urgency-driven creative across all categories.",
+    ctaLink: "",
+    audienceTags: [],
+    contentHints: [],
     brief: "Drive a 48-hour spike in conversions with an aggressive site-wide discount and urgency-driven creative.",
     goal: "Sales Conversion",
     budget: "$9,800",

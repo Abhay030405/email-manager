@@ -11,15 +11,76 @@ from pydantic import BaseModel, ValidationError
 
 try:
     from langchain_openai import ChatOpenAI
-except ImportError:  # pragma: no cover – fallback for environments without langchain-openai
+except ImportError:  # pragma: no cover
     from langchain.chat_models import ChatOpenAI  # type: ignore[no-redef]
 
-from langchain.memory import ConversationBufferMemory
-from langchain.prompts import PromptTemplate
+try:
+    from langchain.memory import ConversationBufferMemory
+except ImportError:
+    try:
+        from langchain_community.memory import ConversationBufferMemory  # type: ignore[no-redef]
+    except ImportError:
+        class ConversationBufferMemory:  # type: ignore[no-redef]
+            """Minimal stub when langchain memory packages are unavailable."""
+            def __init__(self, **kwargs: Any) -> None:
+                self.chat_history: list = []
 
+try:
+    from langchain.prompts import PromptTemplate
+except ImportError:
+    from langchain_core.prompts import PromptTemplate  # type: ignore[no-redef]
+
+import openai
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+
+class _OpenAIClient:
+    """Thin async wrapper around the OpenAI SDK.
+
+    Tries the Responses API first (required for gpt-5-nano and o-series),
+    then falls back to Chat Completions (gpt-4, gpt-4o, gpt-3.5, etc.).
+    Exposes `.ainvoke(prompt)` so all agents can keep using `self.llm.ainvoke`.
+    """
+
+    def __init__(
+        self,
+        model: str,
+        temperature: float,
+        max_tokens: int,
+        api_key: str,
+        timeout: int,
+    ) -> None:
+        self._model = model
+        self._temperature = temperature
+        self._max_tokens = max_tokens
+        self._timeout = timeout
+        self._client = openai.AsyncOpenAI(api_key=api_key, timeout=timeout)
+
+    async def ainvoke(self, prompt: str) -> Any:
+        """Call the model and return an object with a `.content` string attribute."""
+        # 1. Responses API — required for gpt-5 / o-series models
+        try:
+            resp = await self._client.responses.create(
+                model=self._model,
+                input=prompt,
+                max_output_tokens=self._max_tokens,
+            )
+            content = resp.output_text
+            return type("_Msg", (), {"content": content})()
+        except (AttributeError, openai.APIStatusError, openai.APIConnectionError):
+            pass
+
+        # 2. Chat Completions — gpt-4, gpt-4o, gpt-3.5, etc.
+        resp = await self._client.chat.completions.create(
+            model=self._model,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=self._max_tokens,
+            temperature=self._temperature,
+        )
+        content = resp.choices[0].message.content or ""
+        return type("_Msg", (), {"content": content})()
 
 
 class BaseAgent(ABC):
@@ -36,7 +97,7 @@ class BaseAgent(ABC):
     - Per-call timeout enforcement
     """
 
-    DEFAULT_MODEL: str = "gpt-4"
+    DEFAULT_MODEL: str = get_settings().OPENAI_MODEL
     DEFAULT_TEMPERATURE: float = 0.7
     DEFAULT_MAX_TOKENS: int = 2000
     DEFAULT_TIMEOUT: int = 30  # seconds
@@ -54,7 +115,7 @@ class BaseAgent(ABC):
         self.max_tokens = max_tokens
         self.timeout = timeout
         self._settings = get_settings()
-        self.llm: ChatOpenAI = self.setup_llm()
+        self.llm: _OpenAIClient = self.setup_llm()
         self.memory: ConversationBufferMemory = self.setup_memory()
         logger.info(
             "Agent '%s' initialised | model='%s' temperature=%.2f max_tokens=%d timeout=%ds",
@@ -67,20 +128,20 @@ class BaseAgent(ABC):
 
     # ── Setup ──────────────────────────────────────────────────────────────
 
-    def setup_llm(self) -> ChatOpenAI:
-        """Initialise the OpenAI ChatOpenAI client from application settings."""
+    def setup_llm(self) -> "_OpenAIClient":
+        """Initialise the OpenAI client from application settings."""
         api_key = self._settings.OPENAI_API_KEY
         if not api_key:
             raise ValueError(
                 "OPENAI_API_KEY is not configured. "
                 "Set the variable in your environment or .env file."
             )
-        return ChatOpenAI(
+        return _OpenAIClient(
             model=self.model_name,
             temperature=self.temperature,
             max_tokens=self.max_tokens,
-            openai_api_key=api_key,
-            request_timeout=self.timeout,
+            api_key=api_key,
+            timeout=self.timeout,
         )
 
     def setup_memory(self) -> ConversationBufferMemory:
@@ -238,25 +299,41 @@ class BaseAgent(ABC):
     def _parse_llm_output(self, raw_output: str) -> dict[str, Any]:
         """Parse an LLM response string into a structured dictionary.
 
-        Strips Markdown code fences (\\`\\`\\`json ... \\`\\`\\`) before attempting
-        JSON decoding. Falls back to ``{"content": raw_output}`` when the
-        response cannot be decoded as JSON, ensuring callers always receive
-        a ``dict``.
-
-        Args:
-            raw_output: The raw string returned by the LLM.
-
-        Returns:
-            A dictionary representation of the LLM's output.
+        Strategy (in order):
+        1. Strip all markdown code fences and try direct JSON parse.
+        2. Extract the first {...} block from anywhere in the text (handles
+           preamble like "Here is the JSON:" added by some models).
+        3. Extract the first [...] array block.
+        4. Fall back to {"content": raw_output} so callers always get a dict.
         """
-        cleaned = re.sub(r"^```(?:json)?\s*", "", raw_output.strip(), flags=re.IGNORECASE)
-        cleaned = re.sub(r"\s*```$", "", cleaned.strip())
+        # Remove all ``` fences (not just start/end)
+        cleaned = re.sub(r"```(?:json)?\s*", "", raw_output.strip(), flags=re.IGNORECASE)
+        cleaned = cleaned.replace("```", "").strip()
 
+        # 1. Direct parse
         try:
             return json.loads(cleaned)
-        except (json.JSONDecodeError, ValueError):
-            self._log_action(
-                "parse_llm_output",
-                {"warning": "LLM response is not valid JSON; wrapping as plain text."},
-            )
-            return {"content": raw_output}
+        except json.JSONDecodeError:
+            pass
+
+        # 2. Extract first {...} object (handles preamble text)
+        obj_match = re.search(r"\{.*\}", cleaned, re.DOTALL)
+        if obj_match:
+            try:
+                return json.loads(obj_match.group())
+            except json.JSONDecodeError:
+                pass
+
+        # 3. Extract first [...] array
+        arr_match = re.search(r"\[.*\]", cleaned, re.DOTALL)
+        if arr_match:
+            try:
+                return json.loads(arr_match.group())
+            except json.JSONDecodeError:
+                pass
+
+        self._log_action(
+            "parse_llm_output",
+            {"warning": "LLM response is not valid JSON; wrapping as plain text."},
+        )
+        return {"content": raw_output}

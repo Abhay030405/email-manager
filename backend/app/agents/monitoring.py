@@ -28,7 +28,7 @@ class MonitoringAgent(BaseAgent):
     """
 
     def __init__(self) -> None:
-        super().__init__(model_name="gpt-4", temperature=0.0, max_tokens=512)
+        super().__init__(temperature=0.0, max_tokens=512)
         self._client = MockCampaignClient()
         # campaign_id → aggregated result cache
         self._cache: dict[str, dict[str, Any]] = {}

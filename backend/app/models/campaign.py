@@ -22,10 +22,19 @@ class ParsedData(BaseModel):
     """Structured data parsed from the campaign brief."""
 
     product_name: str = ""
+    product_description: str = ""
     target_audience: str = ""
+    audience_who: str = ""
+    audience_location: str = ""
+    audience_filters: str = ""
     campaign_goal: str = ""
+    campaign_objective: str = ""
+    campaign_name: str = ""
     cta_link: str = ""
     budget: Optional[float] = Field(None, ge=0)
+    preferred_tone: str = "professional"
+    key_messages: list[str] = Field(default_factory=list)
+    constraints: Optional[str] = None
 
     @field_validator("budget")
     @classmethod

@@ -20,13 +20,16 @@ const statusConfig: Record<CampaignStatus, { label: string; className: string }>
 };
 
 const Campaigns = () => {
-  const { campaigns } = useCampaigns();
+  const { campaigns, isLoading, error } = useCampaigns();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
 
   const filtered = useMemo(() => {
     return campaigns.filter((c) => {
-      if (search && !c.name.toLowerCase().includes(search.toLowerCase())) return false;
+      if (search) {
+        const q = search.toLowerCase();
+        if (!c.name.toLowerCase().includes(q) && !c.brief.toLowerCase().includes(q)) return false;
+      }
       if (statusFilter !== "all" && c.status !== statusFilter) return false;
       return true;
     });
@@ -74,7 +77,16 @@ const Campaigns = () => {
             </Select>
           </div>
 
-          {filtered.length === 0 ? (
+          {isLoading ? (
+            <div className="flex justify-center items-center py-24 text-muted-foreground text-sm">
+              Loading campaigns…
+            </div>
+          ) : error ? (
+            <div className="flex flex-col items-center justify-center py-24 text-center border rounded-xl bg-card">
+              <p className="text-sm text-destructive font-medium">{error}</p>
+              <p className="text-xs text-muted-foreground mt-1">Make sure the backend is running at {import.meta.env.VITE_API_URL ?? "http://localhost:8000"}</p>
+            </div>
+          ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-24 text-center border rounded-xl bg-card">
               <div className="p-4 rounded-full bg-muted mb-4">
                 <Megaphone className="h-8 w-8 text-muted-foreground" />
@@ -104,7 +116,9 @@ const Campaigns = () => {
                             {status.label}
                           </Badge>
                         </div>
-                        <p className="text-sm text-muted-foreground line-clamp-2 mb-4">{campaign.brief}</p>
+                        <p className="text-sm text-muted-foreground line-clamp-2 mb-4">
+                          {campaign.productDescription || campaign.brief}
+                        </p>
                         <div className="text-xs text-muted-foreground mb-4">Created {campaign.createdAt}</div>
                         <div className="mt-auto flex items-center justify-between text-xs text-muted-foreground pt-3 border-t">
                           <span>

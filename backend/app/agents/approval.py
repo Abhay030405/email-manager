@@ -21,7 +21,7 @@ class ApprovalAgent(BaseAgent):
     """
 
     def __init__(self) -> None:
-        super().__init__(model_name="gpt-4", temperature=0.0, max_tokens=256)
+        super().__init__(temperature=0.0, max_tokens=256)
 
     async def execute(self, input_data: dict[str, Any]) -> dict[str, Any]:
         """Delegate to check_approval_status using campaign_id from input_data."""

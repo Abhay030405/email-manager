@@ -253,24 +253,25 @@ class CustomerSegmentationAgent(BaseAgent):
 
         for c in customers:
             cid = c.customer_id
-            bracket_label = self._age_bracket(c.age)
+            bracket_label = self._age_bracket(c.Age)
+            status = c.activity_status.value
 
             # Age-bracket segments
             groups[bracket_label].append(cid)
 
             # Activity-status segments
-            groups[f"status_{c.activity_status.value}"].append(cid)
+            groups[f"status_{status}"].append(cid)
 
             # Top-priority status for this goal
-            if c.activity_status.value == priority_statuses[0]:
+            if status == priority_statuses[0]:
                 groups[f"high_priority_{priority_statuses[0]}"].append(cid)
 
             # Gender-based segments (only when relevant)
-            if c.gender in (Gender.MALE, Gender.FEMALE):
-                groups[f"gender_{c.gender.value}"].append(cid)
+            if c.Gender in (Gender.MALE, Gender.FEMALE):
+                groups[f"gender_{c.Gender}"].append(cid)
 
             # Combined age + activity (multi-dimensional)
-            groups[f"{bracket_label}_{c.activity_status.value}"].append(cid)
+            groups[f"{bracket_label}_{status}"].append(cid)
 
         return dict(groups)
 
@@ -292,9 +293,9 @@ class CustomerSegmentationAgent(BaseAgent):
         activity_counts: dict[str, int] = defaultdict(int)
 
         for c in customers:
-            age_counts[self._age_bracket(c.age)] += 1
-            gender_counts[c.gender.value] += 1
-            location_counts[c.location] += 1
+            age_counts[self._age_bracket(c.Age)] += 1
+            gender_counts[c.Gender] += 1
+            location_counts[c.City] += 1
             activity_counts[c.activity_status.value] += 1
 
         def _fmt(counts: dict[str, int]) -> str:

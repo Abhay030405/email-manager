@@ -34,7 +34,9 @@ class Settings(BaseSettings):
 
     # ── CORS ─────────────────────────────────────────────────────────
     ALLOWED_ORIGINS: list[str] = [
-        "http://localhost:5173",  # Vite dev server
+        "http://localhost:5173",  # Vite dev server (default port)
+        "http://localhost:8080",  # Vite dev server (configured port)
+        "http://127.0.0.1:8080", # Vite via IPv4 loopback
         "http://localhost:3000",  # CRA / alternate dev
     ]
     ALLOWED_METHODS: list[str] = ["*"]

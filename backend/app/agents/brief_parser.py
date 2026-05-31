@@ -39,7 +39,12 @@ class ParsedBrief(BaseModel):
     product_name: str
     product_description: str = "Not specified"
     target_audience: str
+    audience_who: str = ""
+    audience_location: str = ""
+    audience_filters: str = ""
     campaign_goal: str
+    campaign_objective: str = ""
+    campaign_name: str = ""
     cta_link: str = ""
     budget: Optional[float] = None
     preferred_tone: str = "professional"
@@ -81,16 +86,15 @@ class ParsedBrief(BaseModel):
 
     @model_validator(mode="after")
     def validate_required_fields(self) -> "ParsedBrief":
-        missing = []
         if not self.product_name or self.product_name.lower() in {"unknown", "not specified"}:
-            missing.append("product_name")
-        if not self.target_audience or self.target_audience.lower() in {"unknown", "not specified"}:
-            missing.append("target_audience")
-        if missing:
             raise ValueError(
-                f"Critically required fields could not be extracted: {missing}. "
+                "Critically required fields could not be extracted: ['product_name']. "
                 "Please provide a more detailed campaign brief."
             )
+        # target_audience should already be synthesized by _post_process;
+        # apply a last-resort fallback here rather than failing.
+        if not self.target_audience or self.target_audience.lower() in {"unknown", "not specified"}:
+            self.target_audience = "General audience"
         return self
 
 
@@ -104,8 +108,13 @@ and respond with ONLY a valid JSON object — no markdown fences, no extra text.
 {{
   "product_name":        "<string>  — name of the product or service being promoted",
   "product_description": "<string>  — short description of the product/service",
-  "target_audience":     "<string>  — who the campaign targets (demographics, interests, etc.)",
+  "target_audience":     "<string>  — full target audience summary (all details combined)",
+  "audience_who":        "<string>  — WHO to target: demographics, job type, age range, behaviour",
+  "audience_location":   "<string>  — location/city/region preference, empty string if not mentioned",
+  "audience_filters":    "<string>  — any extra filters: income, credit score, app usage, KYC, etc.; empty string if none",
   "campaign_goal":       "<string>  — MUST be one of: awareness | conversion | retention | engagement",
+  "campaign_objective":  "<string>  — a full, descriptive sentence (or short paragraph) combining the primary objective, secondary objective, and success metrics from the brief; empty string if no explicit goal is stated",
+  "campaign_name":       "<string>  — a short, memorable campaign label of 15-20 characters synthesised from the product name and goal (e.g. 'XDeposit Launch Q2'); ALWAYS generate one even if not stated in the brief",
   "cta_link":            "<string>  — CTA URL if present, otherwise empty string",
   "budget":              <number|null> — numeric budget in USD (e.g. 5000.0), null if absent",
   "preferred_tone":      "<string>  — MUST be one of: professional | casual | friendly | urgent",
@@ -119,6 +128,11 @@ and respond with ONLY a valid JSON object — no markdown fences, no extra text.
 - budget: strip currency symbols and "k" multipliers (e.g. "$5k" → 5000.0).
 - cta_link: return empty string if no valid URL is present.
 - key_messages: even if written as prose, split into 3–5 individual bullet-style strings.
+- audience_who: capture person type + age + behavioural description only — no location, no numeric filters.
+- audience_location: extract ONLY city/region/tier mentions (e.g. "Metro cities", "Delhi, Mumbai").
+- audience_filters: extract ONLY numeric or flag-based filters (income, credit score, KYC, app installed, etc.).
+- campaign_objective: write a full, human-readable description combining the primary goal, secondary goal, and success metrics found in the brief. Use complete sentences. If multiple objectives are present, include them all. Do NOT invent goals that are not stated.
+- campaign_name: ALWAYS generate a short label (15–20 characters) from the product name + campaign goal. If the brief already contains a campaign name, use that instead.
 - Do NOT invent facts not present in the brief.
 
 ## Examples
@@ -132,7 +146,12 @@ Response:
   "product_name": "CloudStorage Pro",
   "product_description": "Cloud storage plan for small and medium businesses",
   "target_audience": "SMB owners",
+  "audience_who": "SMB owners",
+  "audience_location": "",
+  "audience_filters": "",
   "campaign_goal": "conversion",
+  "campaign_objective": "Drive new sign-ups for the CloudStorage Pro plan.",
+  "campaign_name": "CloudStorage Launch",
   "cta_link": "https://cloudstorage.io/pro",
   "budget": 8000.0,
   "preferred_tone": "professional",
@@ -142,22 +161,24 @@ Response:
 
 ---
 
-Brief: "Remind existing subscribers about renewal. Friendly reminder tone. No fixed budget."
+Brief: "Target salaried professionals aged 25-45 in metro cities. Monthly income > 50k, \
+app installed. Goal: drive sign-ups for XDeposit at https://example.com/xdeposit."
 
 Response:
 {{
-  "product_name": "Subscription Service",
-  "product_description": "Existing subscription product",
-  "target_audience": "Existing subscribers approaching renewal",
-  "campaign_goal": "retention",
-  "cta_link": "",
+  "product_name": "XDeposit",
+  "product_description": "Investment / deposit product",
+  "target_audience": "Salaried professionals aged 25-45 in metro cities with monthly income > 50k and app installed",
+  "audience_who": "Salaried professionals aged 25-45",
+  "audience_location": "Metro cities",
+  "audience_filters": "Monthly Income > ₹50,000, App Installed = Yes",
+  "campaign_goal": "conversion",
+  "campaign_objective": "Drive sign-ups for XDeposit among salaried professionals.",
+  "campaign_name": "XDeposit Metro Push",
+  "cta_link": "https://example.com/xdeposit",
   "budget": null,
-  "preferred_tone": "friendly",
-  "key_messages": [
-    "Your subscription is coming up for renewal",
-    "Continue enjoying uninterrupted access",
-    "Renew now to keep your benefits"
-  ],
+  "preferred_tone": "professional",
+  "key_messages": ["Safe investment option", "Higher returns", "Easy sign-up"],
   "constraints": null
 }}
 
@@ -179,7 +200,7 @@ class CampaignBriefParserAgent(BaseAgent):
     def __init__(self, **kwargs: Any) -> None:
         # Low temperature for deterministic, factual extraction
         kwargs.setdefault("temperature", 0.1)
-        kwargs.setdefault("max_tokens", 1024)
+        kwargs.setdefault("max_tokens", 2048)
         super().__init__(**kwargs)
         self._prompt = self.create_prompt_template(
             template=_BRIEF_PARSER_TEMPLATE,
@@ -204,11 +225,10 @@ class CampaignBriefParserAgent(BaseAgent):
         validated: BriefInput = self._validate_input(input_data, BriefInput)
         self._log_action("execute_start", {"brief_length": len(validated.brief_text)})
 
-        raw_output: str = await self._retry_with_backoff(
-            self._call_llm, validated.brief_text
+        parsed_dict = await self._retry_with_backoff(
+            self._call_and_parse, validated.brief_text
         )
 
-        parsed_dict = self._parse_llm_output(raw_output)
         parsed_dict = self._post_process(parsed_dict, validated.brief_text)
         parsed_brief = self._validate_input(parsed_dict, ParsedBrief)
 
@@ -230,6 +250,20 @@ class CampaignBriefParserAgent(BaseAgent):
         prompt_text = self._prompt.format(brief_text=brief_text)
         response = await self.llm.ainvoke(prompt_text)
         return response.content if hasattr(response, "content") else str(response)
+
+    async def _call_and_parse(self, brief_text: str) -> dict[str, Any]:
+        """Call the LLM and extract JSON; raises ValueError if non-JSON is returned.
+
+        Raising here lets _retry_with_backoff retry the full LLM call rather than
+        silently accepting a plain-text fallback that will fail Pydantic validation.
+        """
+        raw = await self._call_llm(brief_text)
+        parsed = self._parse_llm_output(raw)
+        if set(parsed.keys()) == {"content"}:
+            raise ValueError(
+                f"LLM returned non-JSON output (will retry). Preview: {raw[:120]!r}"
+            )
+        return parsed
 
     def _post_process(self, data: dict[str, Any], original_brief: str) -> dict[str, Any]:
         """Apply heuristic fixes to the raw LLM-extracted dict before Pydantic validation.
@@ -268,6 +302,24 @@ class CampaignBriefParserAgent(BaseAgent):
         data.setdefault("constraints", None)
         data.setdefault("cta_link", "")
         data.setdefault("budget", None)
+        data.setdefault("audience_who", "")
+        data.setdefault("audience_location", "")
+        data.setdefault("audience_filters", "")
+        data.setdefault("campaign_objective", "")
+        data.setdefault("campaign_name", "")
+
+        # -- synthesize target_audience if LLM left it blank ----------------------
+        # (can happen when max_tokens is exhausted mid-response)
+        if not data.get("target_audience"):
+            parts = [
+                p for p in [
+                    data.get("audience_who", ""),
+                    data.get("audience_location", ""),
+                    data.get("audience_filters", ""),
+                ]
+                if p
+            ]
+            data["target_audience"] = ", ".join(parts) if parts else "General audience"
 
         return data
 

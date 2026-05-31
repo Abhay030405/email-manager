@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
   BarChart3,
   CheckCircle2,
   ChevronRight,
+  ExternalLink,
   RotateCcw,
   XCircle,
   Clock,
@@ -54,7 +55,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useCampaigns } from "@/context/CampaignsContext";
-import { CampaignStatus } from "@/data/campaignsData";
+import { CampaignStatus, Segment, EmailVariant } from "@/data/campaignsData";
+import { getCampaignSegments, getCampaignVariants } from "@/lib/api";
+import { fillPlaceholders, stripHtml } from "@/lib/emailUtils";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
@@ -87,6 +90,49 @@ const CampaignDetail = () => {
   const [view, setView] = useState<View>("overview");
   const [revisionOpen, setRevisionOpen] = useState(false);
   const [revisionNote, setRevisionNote] = useState("");
+
+  const [segments, setSegments] = useState<Segment[]>([]);
+  const [variants, setVariants] = useState<EmailVariant[]>([]);
+
+  useEffect(() => {
+    if (!id) return;
+
+    const LABELS = ["A", "B", "C", "D", "E", "F"];
+
+    getCampaignSegments(id).then(({ segments: apiSegs }) => {
+      setSegments(
+        apiSegs.map((s) => {
+          const c = s.segment_criteria ?? {};
+          const age =
+            c.age_range
+              ? `${c.age_range.min ?? ""}–${c.age_range.max ?? ""}`
+              : "All ages";
+          const gender = c.gender?.join(", ") ?? "All";
+          const location = c.cities?.slice(0, 3).join(", ") ?? "All locations";
+          return {
+            name: s.segment_name.replace(/_/g, " "),
+            count: s.customer_ids?.length ?? 0,
+            age,
+            gender,
+            location,
+            description: s.description || `Segment: ${s.segment_name}`,
+          };
+        }),
+      );
+    });
+
+    getCampaignVariants(id).then(({ variants: apiVars }) => {
+      setVariants(
+        apiVars.map((v, i) => ({
+          variantId: v.variant_id,
+          variant: LABELS[i] ?? String(i + 1),
+          subject: v.subject_line,
+          body: v.email_body,
+          segment: v.segment_name.replace(/_/g, " "),
+        })),
+      );
+    });
+  }, [id]);
 
   if (!campaign) {
     return (
@@ -181,20 +227,63 @@ const CampaignDetail = () => {
           <div className="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Main column */}
             <div className="lg:col-span-2 space-y-6">
-              {/* Brief */}
+              {/* About Product */}
               <Card>
                 <CardHeader className="pb-3">
-                  <CardTitle className="text-base font-semibold">Campaign Brief</CardTitle>
+                  <CardTitle className="text-base font-semibold">About Product</CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-4">
-                  <p className="text-sm text-foreground leading-relaxed">{campaign.brief}</p>
+                <CardContent className="space-y-8">
+                  <p className="text-sm text-foreground leading-relaxed">
+                    {campaign.productDescription || "No product description available."}
+                  </p>
+                  {campaign.ctaLink && (
+                    <div className="flex items-center gap-2 rounded-md border bg-secondary/40 px-3 py-2">
+                      <ExternalLink className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                      <a
+                        href={campaign.ctaLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm text-primary hover:underline truncate"
+                      >
+                        {campaign.ctaLink}
+                      </a>
+                    </div>
+                  )}
+                  {campaign.audienceTags.length > 0 && (
+                    <div className="space-y-1.5">
+                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Targeting Audience</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {campaign.audienceTags.map((tag) => (
+                          <span
+                            key={tag}
+                            className="inline-flex items-center rounded-full border bg-secondary px-2.5 py-0.5 text-xs font-medium text-foreground"
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {campaign.contentHints.length > 0 && (
+                    <div className="space-y-1.5">
+                      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Content Hints</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {campaign.contentHints.map((hint) => (
+                          <span
+                            key={hint}
+                            className="inline-flex items-center rounded-full border border-violet-200 bg-violet-50 px-2.5 py-0.5 text-xs font-medium text-violet-700"
+                          >
+                            {hint}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-3 border-t">
                     <BriefStat icon={Flag} label="Goal" value={campaign.goal} />
                     <BriefStat icon={DollarSign} label="Budget" value={campaign.budget} />
                     <BriefStat icon={Calendar} label="Send" value={campaign.scheduledSend} />
-                    <BriefStat icon={Users} label="Reach" value={`${campaign.segments
-                      .reduce((acc, s) => acc + s.count, 0)
-                      .toLocaleString()}`} />
+                    <BriefStat icon={Users} label="Reach" value={segments.reduce((acc, s) => acc + s.count, 0).toLocaleString()} />
                   </div>
                   {campaign.revisionNotes && (
                     <div className="rounded-md border border-stat-amber/30 bg-stat-amber/5 p-3">
@@ -214,7 +303,9 @@ const CampaignDetail = () => {
                   </Badge>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  {campaign.segments.map((s) => (
+                  {segments.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No segments generated yet. Run the workflow to create segments.</p>
+                  ) : segments.map((s) => (
                     <div key={s.name} className="rounded-lg border bg-secondary/30 p-4">
                       <div className="flex items-start justify-between mb-1.5">
                         <h3 className="text-sm font-semibold text-foreground">{s.name}</h3>
@@ -240,8 +331,15 @@ const CampaignDetail = () => {
                   <CardTitle className="text-base font-semibold">Email Variants</CardTitle>
                 </CardHeader>
                 <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  {campaign.variants.map((v) => (
-                    <div key={v.variant} className="rounded-lg border bg-card overflow-hidden">
+                  {variants.length === 0 ? (
+                    <p className="text-sm text-muted-foreground col-span-3">No email variants generated yet. Run the workflow to generate content.</p>
+                  ) : variants.map((v) => (
+                    <button
+                      key={v.variant}
+                      type="button"
+                      onClick={() => navigate(`/campaigns/${id}/${v.variantId}`)}
+                      className="rounded-lg border bg-card overflow-hidden text-left transition-all hover:shadow-md hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
                       <div className="px-4 py-2.5 border-b bg-muted/40 flex items-center justify-between">
                         <div className="flex items-center gap-1.5">
                           <Mail className="h-3.5 w-3.5 text-muted-foreground" />
@@ -250,10 +348,12 @@ const CampaignDetail = () => {
                         <Badge variant="secondary" className="text-[10px]">{v.segment}</Badge>
                       </div>
                       <div className="p-3 space-y-1.5">
-                        <p className="text-xs font-medium text-foreground">{v.subject}</p>
-                        <p className="text-xs text-muted-foreground line-clamp-3 leading-relaxed">{v.body}</p>
+                        <p className="text-xs font-medium text-foreground">{fillPlaceholders(v.subject)}</p>
+                        <p className="text-xs text-muted-foreground line-clamp-3 leading-relaxed">
+                          {fillPlaceholders(stripHtml(v.body))}
+                        </p>
                       </div>
-                    </div>
+                    </button>
                   ))}
                 </CardContent>
               </Card>

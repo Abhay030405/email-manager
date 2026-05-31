@@ -1,46 +1,59 @@
-"""Factory Boy factories for Metrics test data."""
+"""Metrics test data factories (Faker-based, no factory-boy required)."""
 
+from __future__ import annotations
+
+import random
 import uuid
 from datetime import datetime
 
-import factory
-from faker import Faker
 
-fake = Faker()
+class MetricsFactory:
+    @classmethod
+    def create(cls, **kwargs) -> dict:
+        open_rate = kwargs.pop("open_rate", round(random.uniform(0.05, 0.80), 3))
+        click_rate = kwargs.pop("click_rate", round(random.uniform(0.01, 0.30), 3))
+        total_sent = kwargs.pop("total_sent", random.randint(50, 2000))
+        ctr = kwargs.pop("click_through_rate", round(random.uniform(0.005, 0.20), 3))
 
+        unique_opens = max(1, int(total_sent * open_rate))
+        unique_clicks = max(0, int(unique_opens * click_rate))
+        performance_score = round(0.7 * click_rate + 0.3 * open_rate, 3)
 
-class MetricsFactory(factory.Factory):
-    class Meta:
-        model = dict
+        data = {
+            "metric_id": str(uuid.uuid4()),
+            "variant_id": str(uuid.uuid4()),
+            "campaign_id": str(uuid.uuid4()),
+            "mock_campaign_id": str(uuid.uuid4()),
+            "total_sent": total_sent,
+            "open_rate": open_rate,
+            "click_rate": click_rate,
+            "click_through_rate": ctr,
+            "unique_opens": unique_opens,
+            "unique_clicks": unique_clicks,
+            "performance_score": performance_score,
+            "calculated_at": datetime.utcnow(),
+            "collected_at": datetime.utcnow(),
+            "last_updated": datetime.utcnow(),
+        }
+        data.update(kwargs)
+        return data
 
-    metric_id = factory.LazyFunction(lambda: str(uuid.uuid4()))
-    variant_id = factory.LazyFunction(lambda: str(uuid.uuid4()))
-    campaign_id = factory.LazyFunction(lambda: str(uuid.uuid4()))
-    mock_campaign_id = factory.LazyFunction(lambda: str(uuid.uuid4()))
+    @classmethod
+    def create_batch(cls, n: int, **kwargs) -> list[dict]:
+        return [cls.create(**kwargs) for _ in range(n)]
 
-    total_sent = factory.LazyFunction(lambda: fake.random_int(50, 2000))
-    open_rate = factory.LazyFunction(lambda: round(fake.pyfloat(min_value=0.05, max_value=0.80), 3))
-    click_rate = factory.LazyFunction(lambda: round(fake.pyfloat(min_value=0.01, max_value=0.30), 3))
-    click_through_rate = factory.LazyFunction(lambda: round(fake.pyfloat(min_value=0.005, max_value=0.20), 3))
+    @classmethod
+    def create_high_performing(cls, **kwargs) -> dict:
+        return cls.create(
+            open_rate=round(random.uniform(0.50, 0.80), 3),
+            click_rate=round(random.uniform(0.20, 0.40), 3),
+            **kwargs,
+        )
 
-    # Derived counts (approximated)
-    unique_opens = factory.LazyAttribute(lambda o: max(1, int(o.total_sent * o.open_rate)))
-    unique_clicks = factory.LazyAttribute(lambda o: max(0, int(o.unique_opens * o.click_rate)))
-
-    performance_score = factory.LazyAttribute(
-        lambda o: round(0.7 * o.click_rate + 0.3 * o.open_rate, 3)
-    )
-
-    calculated_at = factory.LazyFunction(datetime.utcnow)
-    collected_at = factory.LazyFunction(datetime.utcnow)
-    last_updated = factory.LazyFunction(datetime.utcnow)
-
-
-class HighPerformingMetricsFactory(MetricsFactory):
-    open_rate = factory.LazyFunction(lambda: round(fake.pyfloat(min_value=0.50, max_value=0.80), 3))
-    click_rate = factory.LazyFunction(lambda: round(fake.pyfloat(min_value=0.20, max_value=0.40), 3))
-
-
-class LowPerformingMetricsFactory(MetricsFactory):
-    open_rate = factory.LazyFunction(lambda: round(fake.pyfloat(min_value=0.01, max_value=0.15), 3))
-    click_rate = factory.LazyFunction(lambda: round(fake.pyfloat(min_value=0.001, max_value=0.05), 3))
+    @classmethod
+    def create_low_performing(cls, **kwargs) -> dict:
+        return cls.create(
+            open_rate=round(random.uniform(0.01, 0.15), 3),
+            click_rate=round(random.uniform(0.001, 0.05), 3),
+            **kwargs,
+        )

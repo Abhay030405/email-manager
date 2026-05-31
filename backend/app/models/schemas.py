@@ -112,6 +112,7 @@ class CustomerResponse(BaseModel):
 class CampaignCreate(BaseModel):
     campaign_brief: str = Field(..., min_length=1)
     created_by: str = ""
+    parsed_data: Optional[ParsedData] = None
 
     model_config = {
         "json_schema_extra": {

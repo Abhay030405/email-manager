@@ -48,11 +48,13 @@ class TestCampaignVariantModel:
         v = CampaignVariant(**self._valid_variant(send_time=send))
         assert v.send_time is not None
 
-    def test_variant_id_required(self):
+    def test_variant_id_auto_generated_when_omitted(self):
         data = self._valid_variant()
         data.pop("variant_id")
-        with pytest.raises(ValidationError):
-            CampaignVariant(**data)
+        v = CampaignVariant(**data)
+        # variant_id has a default_factory — should be auto-generated UUID
+        assert v.variant_id is not None
+        assert len(v.variant_id) > 0
 
     def test_campaign_id_required(self):
         data = self._valid_variant()

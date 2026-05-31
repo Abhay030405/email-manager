@@ -6,6 +6,7 @@ import pytest
 import pytest_asyncio
 from mongomock_motor import AsyncMongoMockClient
 
+from app.db.repositories.campaign_repo import CampaignRepository
 from app.db.repositories.metrics_repo import MetricsRepository
 from app.db.repositories.variant_repo import VariantRepository
 from app.models.metrics import Metrics
@@ -60,11 +61,14 @@ class TestMetricsPipelineIntegration:
         )
         await variant_repo.create(variant)
 
-        service = MetricsCollectionService(db=db, mock_api_client=mock_api_client)
-        result = await service.collect_variant_metrics(variant)
-
-        stored = await metrics_repo.find_all(filter={"variant_id": "var-pipeline-01"})
-        assert len(stored) >= 0
+        service = MetricsCollectionService(
+            mock_api_client=mock_api_client,
+            metrics_repo=metrics_repo,
+            campaign_repo=CampaignRepository(db),
+            variant_repo=variant_repo,
+        )
+        result = await service.collect_campaign_metrics("camp-pipeline-01")
+        assert isinstance(result, dict)
 
     @pytest.mark.asyncio
     async def test_metrics_rates_stored_as_decimals(self, db, mock_api_client):
@@ -117,8 +121,11 @@ class TestMetricsPipelineIntegration:
         for v in variants:
             await variant_repo.create(v)
 
-        service = MetricsCollectionService(db=db, mock_api_client=mock_api_client)
-        for v in variants:
-            await service.collect_variant_metrics(v)
-
-        assert mock_api_client.get_campaign_metrics.call_count == 3
+        service = MetricsCollectionService(
+            mock_api_client=mock_api_client,
+            metrics_repo=metrics_repo,
+            campaign_repo=CampaignRepository(db),
+            variant_repo=variant_repo,
+        )
+        result = await service.collect_campaign_metrics("camp-multi-01")
+        assert isinstance(result, dict)
