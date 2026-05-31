@@ -1,0 +1,879 @@
+# CampaignX — Agentic System Architecture
+
+## Table of Contents
+1. [System Overview](#system-overview)
+2. [Agent Catalogue](#agent-catalogue)
+   - [CampaignBriefParserAgent](#1-campaignbriefparseragent)
+   - [CustomerSegmentationAgent](#2-customersegmentationagent)
+   - [CampaignStrategyAgent](#3-campaignstrategyagent)
+   - [ContentGenerationAgent](#4-contentgenerationagent)
+   - [ApprovalAgent](#5-approvalagent)
+   - [ExecutionAgent](#6-executionagent)
+   - [MonitoringAgent](#7-monitoringagent)
+   - [OptimizationAgent](#8-optimizationagent)
+3. [Shared Infrastructure — BaseAgent](#shared-infrastructure--baseagent)
+4. [Orchestration Graphs](#orchestration-graphs)
+   - [Main Campaign Graph](#main-campaign-graph)
+   - [Optimization Feedback Loop](#optimization-feedback-loop)
+5. [State & Persistence](#state--persistence)
+6. [Full System Architecture Diagram](#full-system-architecture-diagram)
+
+---
+
+## System Overview
+
+CampaignX is an **LLM-powered multi-agent marketing automation platform**. A user submits a natural-language campaign brief; the system autonomously parses it, segments customers, devises a strategy, generates personalised email variants, waits for human approval, executes the campaign via a Mock Campaign API, monitors results, and iteratively optimises underperforming variants.
+
+The orchestration layer is built on **LangGraph** (state-machine graph), with each node delegating to a specialised **agent** that wraps an OpenAI LLM call with retry logic, Pydantic validation, structured logging, and deterministic fallbacks.
+
+---
+
+## Agent Catalogue
+
+---
+
+### 1. `CampaignBriefParserAgent`
+**File:** `backend/app/agents/brief_parser.py`  
+**Purpose:** Converts a raw natural-language marketing brief into a fully structured, validated data object.
+
+#### Input
+
+Schema: `BriefInput`
+
+| Field | Type | Constraints | Description |
+|-------|------|-------------|-------------|
+| `brief_text` | `str` | `min_length=1` | Raw campaign brief in any natural language |
+
+**Example input:**
+```json
+{
+  "brief_text": "Launch XDeposit for salaried professionals aged 25–45 in metro cities. Monthly income > ₹50k, app installed. Goal: drive sign-ups at https://example.com/xdeposit. Budget ₹3,00,000."
+}
+```
+
+#### Output
+
+Schema: `ParsedBrief`
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `product_name` | `str` | — | Name of the product/service being promoted |
+| `product_description` | `str` | `"Not specified"` | Short description of the product |
+| `target_audience` | `str` | — | Full synthesised audience summary |
+| `audience_who` | `str` | `""` | Demographics, job type, age range, behaviour |
+| `audience_location` | `str` | `""` | City/region/tier preferences |
+| `audience_filters` | `str` | `""` | Numeric or flag-based filters (income, credit score, KYC, app installed) |
+| `campaign_goal` | `str` | — | One of: `awareness \| conversion \| retention \| engagement` |
+| `campaign_objective` | `str` | `""` | Full descriptive sentence combining primary goal + success metrics |
+| `campaign_name` | `str` | `""` | Auto-generated 15–20 character label (e.g. `"XDeposit Metro Push"`) |
+| `cta_link` | `str` | `""` | Valid URL or empty string |
+| `budget` | `float \| null` | `null` | Numeric budget (handles `"$5k"` → `5000.0`) |
+| `preferred_tone` | `str` | `"professional"` | One of: `professional \| casual \| friendly \| urgent` |
+| `key_messages` | `list[str]` | `[]` | 3–5 key selling points |
+| `constraints` | `str \| null` | `null` | Compliance notes, timing restrictions |
+
+**Example output:**
+```json
+{
+  "product_name": "XDeposit",
+  "product_description": "Investment deposit product offering higher returns",
+  "target_audience": "Salaried professionals aged 25–45 in metro cities with income > ₹50k and app installed",
+  "audience_who": "Salaried professionals aged 25–45",
+  "audience_location": "Metro cities",
+  "audience_filters": "Monthly Income > ₹50,000, App Installed = Yes",
+  "campaign_goal": "conversion",
+  "campaign_objective": "Drive sign-ups for XDeposit among high-income salaried professionals.",
+  "campaign_name": "XDeposit Metro Push",
+  "cta_link": "https://example.com/xdeposit",
+  "budget": 300000.0,
+  "preferred_tone": "professional",
+  "key_messages": ["Higher returns", "Safe investment", "Easy sign-up in minutes"],
+  "constraints": null
+}
+```
+
+#### Internal Steps
+1. LLM temperature `0.1` — deterministic, factual extraction
+2. Max tokens `2048` (supports long briefs up to ~15k chars)
+3. `_retry_with_backoff` — up to 3 attempts (1s → 2s → 4s)
+4. **Post-processing:** budget normalisation (`"$5k"` → `5000.0`), CTA sentinel removal, key_messages list coercion
+5. **Synthesis:** if `target_audience` is blank, assembles it from `audience_who + location + filters`
+6. **Validation:** `product_name` is hard-required (raises); `target_audience` falls back to `"General audience"` rather than failing
+
+---
+
+### 2. `CustomerSegmentationAgent`
+**File:** `backend/app/agents/segmentation.py`  
+**Purpose:** Translates the campaign's audience fields into concrete DB-field filter criteria, pre-selects the qualified candidate pool (AND logic — a customer must pass **every** specified filter), then segments that pool into 3–7 prioritised, named groups.
+
+> **Key design principle:** filters are derived exclusively from what the brief parser extracted.  
+> If a Customer DB field has no matching criterion in the brief, **no filter is applied for that field** — all values are accepted.
+
+---
+
+#### Step 1 — Audience → DB Criteria Mapping
+
+The agent receives three natural-language strings from `parsed_data` and maps each to specific Customer document fields:
+
+| Parsed field | Maps to Customer fields | Example value | Extracted criterion |
+|---|---|---|---|
+| `audience_who` | `Age`, `Gender`, `Occupation_type`, `Marital_Status` | `"Salaried professionals aged 25–45"` | Age: 25–45, Occupation_type: Full-time |
+| `audience_location` | `City` | `"Metro cities"` | City ∈ [Mumbai, Delhi, Bangalore, Chennai, Hyderabad, Kolkata] |
+| `audience_filters` | `Monthly_Income`, `Credit_score`, `App_Installed`, `Existing_Customer`, `KYC_status`, `Social_Media_Active`, `Kids_in_Household`, `Family_Size` | `"Monthly Income > ₹50,000, App Installed = Yes"` | Monthly_Income > 50000, App_Installed = "Y" |
+
+The LLM interprets these strings and produces a structured `AudienceCriteria` object:
+
+```json
+{
+  "age_min": 25,
+  "age_max": 45,
+  "gender": [],
+  "occupation_types": ["Full-time"],
+  "cities": ["Mumbai", "Delhi", "Bangalore", "Chennai", "Hyderabad", "Kolkata"],
+  "min_income": 50000,
+  "max_income": null,
+  "min_credit_score": null,
+  "app_installed": "Y",
+  "existing_customer": null,
+  "kyc_status": null,
+  "social_media_active": null
+}
+```
+
+Fields left `null` or `[]` → **no filter applied** for that Customer field.
+
+---
+
+#### Step 2 — Candidate Pre-selection (AND logic)
+
+Each customer in the full 5,000-record pool is evaluated against **all non-null** criteria simultaneously:
+
+```
+customer qualifies  ⟺  ALL of the following are true:
+  age_min   ≤ customer.Age       ≤ age_max           (if age range specified)
+  customer.Gender         ∈ gender                   (if gender list specified)
+  customer.Occupation_type ∈ occupation_types        (if specified)
+  customer.City           ∈ cities                   (if specified)
+  customer.Monthly_Income ≥ min_income               (if specified)
+  customer.Monthly_Income ≤ max_income               (if specified)
+  customer.Credit_score  ≥ min_credit_score          (if specified)
+  customer.App_Installed  = app_installed             (if specified)
+  customer.Existing_Customer = existing_customer      (if specified)
+  customer.KYC_status     = kyc_status               (if specified)
+  customer.Social_Media_Active = social_media_active (if specified)
+```
+
+Customers who fail **any** active criterion are excluded. The result is the **qualified candidate pool**.
+
+---
+
+#### Step 3 — Segmentation within the Qualified Pool
+
+The agent takes the qualified pool and divides it into 3–7 named segments. Segmentation is done on dimensions **within the already-filtered pool**, for example:
+
+- Activity level: `active` (Existing_Customer=Y + App_Installed=Y), `inactive` (Existing_Customer=Y only), `dormant` (non-customer)
+- Age sub-brackets within the qualified range
+- City tier groupings
+- Goal-driven prioritisation (conversion → prioritise `active` sub-group first)
+
+The LLM names, describes, and assigns a `targeting_priority` to each segment.
+
+---
+
+#### Input
+
+Schema: `SegmentationInput`
+
+| Field | Type | Constraints | Description |
+|-------|------|-------------|-------------|
+| `customers` | `list[Customer]` | non-empty | Full customer list (unfiltered) from Mock API or MongoDB |
+| `target_audience` | `str` | `min_length=1` | Combined audience summary from parsed brief |
+| `audience_who` | `str` | `""` | Demographics, job type, age range |
+| `audience_location` | `str` | `""` | City/region mentions |
+| `audience_filters` | `str` | `""` | Numeric/flag filters: income, credit score, app, KYC etc. |
+| `campaign_goal` | `str` | one of allowed | `awareness \| conversion \| retention \| engagement` |
+
+---
+
+#### Output
+
+Schema: `SegmentationResult`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `qualified_count` | `int` | Customers that passed all filters |
+| `total_count` | `int` | Total input customers before filtering |
+| `filter_applied` | `AudienceCriteria` | The resolved filter object (for audit/debug) |
+| `segments` | `list[SegmentOut]` | Ordered by `targeting_priority` descending |
+| `coverage_pct` | `float` | % of qualified customers assigned to ≥1 segment |
+| `distribution` | `dict[str, int]` | `segment_name → customer_count` |
+
+Each `SegmentOut`:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `segment_name` | `str` | Snake_case name (e.g. `"salaried_metro_active"`) |
+| `description` | `str` | Why this segment matters for the campaign |
+| `customer_ids` | `list[str]` | IDs of customers in this segment |
+| `size` | `int` | Auto-synced from `len(customer_ids)` |
+| `targeting_priority` | `int` | 1–5 (5 = highest priority) |
+| `recommended_approach` | `str` | 1–2 sentence tactical guidance |
+| `applied_criteria` | `dict` | Which DB fields were filtered to define this sub-segment |
+
+**Example output:**
+```json
+{
+  "qualified_count": 1247,
+  "total_count": 5000,
+  "filter_applied": {
+    "age_min": 25, "age_max": 45,
+    "occupation_types": ["Full-time"],
+    "cities": ["Mumbai", "Delhi", "Bangalore", "Chennai", "Hyderabad", "Kolkata"],
+    "min_income": 50000,
+    "app_installed": "Y"
+  },
+  "segments": [
+    {
+      "segment_name": "salaried_metro_active",
+      "description": "High-income metro professionals aged 25–45 with app installed and existing relationship",
+      "customer_ids": ["CUST0042", "CUST0107", "..."],
+      "size": 612,
+      "targeting_priority": 5,
+      "recommended_approach": "Lead with ROI and trust messaging. Subject line urgency works well.",
+      "applied_criteria": {"Existing_Customer": "Y", "App_Installed": "Y"}
+    },
+    {
+      "segment_name": "salaried_metro_prospect",
+      "description": "Qualified prospects not yet customers — high acquisition potential",
+      "customer_ids": ["CUST0201", "..."],
+      "size": 635,
+      "targeting_priority": 4,
+      "recommended_approach": "Welcome/introductory framing. Emphasise sign-up simplicity.",
+      "applied_criteria": {"Existing_Customer": "N"}
+    }
+  ],
+  "coverage_pct": 100.0,
+  "distribution": {"salaried_metro_active": 612, "salaried_metro_prospect": 635}
+}
+```
+
+---
+
+#### Internal Steps
+
+1. LLM temperature `0.2`, max tokens `2048`
+2. **Phase 1 — Criteria extraction (LLM call):**  
+   Parse `audience_who`, `audience_location`, `audience_filters` → `AudienceCriteria` object with explicit DB field mappings
+3. **Phase 2 — Hard filter (Python, no LLM):**  
+   Iterate all customers; retain only those satisfying every non-null criterion (AND logic)
+4. **Phase 3 — Segmentation (LLM call):**  
+   Send qualified pool summary + candidate sub-groups to LLM; LLM names, describes, prioritises segments
+5. Minimum segment size: 5% of qualified pool (micro-segments filtered)
+6. **Fallback:** if fewer than 10 customers qualify, skip field-level filters and fall back to `general_audience` with a logged warning
+7. **Segments persisted to MongoDB** (`segments` collection) with `segment_criteria` populated from `AudienceCriteria`
+
+---
+
+#### Customer DB Fields Available for Filtering
+
+| DB Field | Type | Example values |
+|---|---|---|
+| `Age` | `int` | 18–80 |
+| `Gender` | `str` | `"Male"`, `"Female"`, `"Other"` |
+| `Marital_Status` | `str` | `"Married"`, `"Single"`, `"Divorced"`, `"Widowed"` |
+| `Family_Size` | `int` | 1–10 |
+| `Occupation` | `str` | `"Engineer"`, `"Doctor"`, ... |
+| `Occupation_type` | `str` | `"Full-time"`, `"Part-time"`, `"Self-employed"`, `"Retired"`, `"Student"` |
+| `Monthly_Income` | `int` | 0–500000 (₹) |
+| `KYC_status` | `str` | `"Y"`, `"N"` |
+| `City` | `str` | `"Mumbai"`, `"Delhi"`, `"Bangalore"`, ... |
+| `Kids_in_Household` | `int` | 0–5 |
+| `App_Installed` | `str` | `"Y"`, `"N"` |
+| `Existing_Customer` | `str` | `"Y"`, `"N"` |
+| `Credit_score` | `int` | 300–850 |
+| `Social_Media_Active` | `str` | `"Y"`, `"N"` |
+
+---
+
+### 3. `CampaignStrategyAgent`
+**File:** `backend/app/agents/strategy.py`  
+**Purpose:** Produces targeting plan, send schedule, A/B test configuration, and budget allocation.
+
+#### Input
+
+Schema: `StrategyInput`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `parsed_brief` | `ParsedBrief` | Structured campaign brief |
+| `segments` | `list[SegmentOut]` | Non-empty list of available segments |
+| `current_time` | `datetime` | Timezone-aware UTC datetime |
+
+#### Output
+
+Schema: `CampaignStrategy`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `selected_segments` | `list[str]` | 2–5 segment names chosen for targeting |
+| `send_schedule` | `dict[str, datetime]` | `segment_name → ISO-8601 send time` |
+| `ab_test_plan.num_variants` | `int` | 2–4 variants based on budget |
+| `ab_test_plan.test_dimension` | `str` | `subject_line \| content \| send_time \| cta \| tone` |
+| `ab_test_plan.variant_distribution` | `dict[str, float]` | `variant_id → traffic %` (sums to 100) |
+| `budget_allocation` | `dict[str, float]` | `segment_name → budget %` (sums to 100) |
+| `expected_metrics` | `dict[str, float]` | `segment_name → expected open rate (0–1)` |
+| `reasoning` | `dict[str, str]` | `segment_name → rationale` |
+
+**Example output:**
+```json
+{
+  "selected_segments": ["gen_x_young_active", "millennials_active"],
+  "send_schedule": {
+    "gen_x_young_active": "2025-06-10T09:00:00Z",
+    "millennials_active": "2025-06-10T11:00:00Z"
+  },
+  "ab_test_plan": {
+    "num_variants": 2,
+    "test_dimension": "subject_line",
+    "variant_distribution": {"variant_A": 50.0, "variant_B": 50.0}
+  },
+  "budget_allocation": {"gen_x_young_active": 65.0, "millennials_active": 35.0},
+  "expected_metrics": {"gen_x_young_active": 0.32, "millennials_active": 0.28},
+  "reasoning": {"gen_x_young_active": "Highest priority segment with active app users..."}
+}
+```
+
+#### Internal Steps
+1. LLM temperature `0.3`, max tokens `2048`
+2. **Heuristic pre-computation** before LLM call:
+   - Variant count: 2 if budget < ₹2k, 3 if < ₹10k, 4 if ≥ ₹10k
+   - Send time: goal-specific best-practice hours; staggered 2h offsets for awareness
+   - Budget: proportional to `priority² × size`
+   - Open rate estimation: base by activity × goal boost
+3. LLM refines and validates heuristic hints
+4. Post-processing normalises allocations to sum to 100
+
+---
+
+### 4. `ContentGenerationAgent`
+**File:** `backend/app/agents/content_gen.py`  
+**Purpose:** Generates personalised, mobile-responsive HTML email content for each A/B variant.
+
+#### Input
+
+Schema: `ContentGenerationInput`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `parsed_brief` | `ParsedBrief` | Full campaign brief |
+| `segment` | `SegmentOut` | Target customer segment |
+| `variant_id` | `str` | A/B variant identifier (e.g. `"abc123_v1"`) |
+| `strategy` | `CampaignStrategy` | Full campaign strategy |
+
+#### Output
+
+Schema: `EmailContent`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `variant_id` | `str` | Matches input |
+| `segment_name` | `str` | Target segment name |
+| `subject_lines` | `list[str]` | 5–10 options, 40–60 characters each |
+| `email_body` | `str` | Mobile-responsive HTML (`min_length=100`) |
+| `preview_text` | `str` | 50–100 char inbox preview snippet |
+| `personalization_tags` | `list[str]` | Auto-detected tokens e.g. `["[FIRST_NAME]", "[LOCATION]"]` |
+| `tone` | `str` | Applied tone |
+| `estimated_read_time` | `str` | `"< 1 min"`, `"1 min"`, or `"2 min"` |
+
+**Example output:**
+```json
+{
+  "variant_id": "abc123_v1",
+  "segment_name": "gen_x_young_active",
+  "subject_lines": [
+    "Secure your future with XDeposit, [FIRST_NAME]",
+    "Higher returns, zero risk — XDeposit for [LOCATION] professionals"
+  ],
+  "email_body": "<html>...</html>",
+  "preview_text": "Earn 1% more than market rate. Sign up in under 2 minutes.",
+  "personalization_tags": ["[FIRST_NAME]", "[LOCATION]"],
+  "tone": "professional",
+  "estimated_read_time": "< 1 min"
+}
+```
+
+#### Internal Steps
+1. LLM temperature `0.75` (creative diversity), max tokens `3000`
+2. **Variant archetype system** (last letter of variant_id → archetype):
+   - `v1 / A` → Benefit-focused / Emotional appeal
+   - `v2 / B` → Feature-focused / Logical appeal
+   - `v3 / C` → Urgency / FOMO
+   - `v4 / D` → Social proof / Testimonial
+3. **Tone-driven accent colours** in HTML wrapper: professional `#1a73e8`, casual `#f4511e`, friendly `#34a853`, urgent `#d93025`
+4. **Personalisation token detection:** auto-scans body + subjects for `[TOKEN]` patterns
+5. **Variant ID scoped to campaign:** `{campaign_prefix}_v{index}` — prevents duplicate key errors across campaigns
+
+---
+
+### 5. `ApprovalAgent`
+**File:** `backend/app/agents/approval.py`  
+**Purpose:** Non-LLM agent that reads campaign approval status from MongoDB and surfaces it to the workflow.
+
+#### Input
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `campaign_id` | `str` | Campaign identifier |
+
+#### Output
+
+| Field | Type | Values |
+|-------|------|--------|
+| `approval_status` | `str` | `"approved" \| "rejected" \| "pending"` |
+
+#### Internal Steps
+1. No LLM call — pure database read (temperature `0.0`)
+2. Maps `CampaignStatus` enum → approval string
+3. Returns `"pending"` as safe default if campaign not found
+
+---
+
+### 6. `ExecutionAgent`
+**File:** `backend/app/agents/execution.py`  
+**Purpose:** Schedules approved email variants via the Mock Campaign API.
+
+#### Input
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `campaign_id` | `str` | Campaign identifier |
+| `variants` | `list[dict]` | Approved variants with `subject_line`, `email_body`, `send_time`, `customer_ids`, `segment_name`, `variant_id` |
+
+#### Output
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `execution_status` | `str` | `"completed" \| "failed"` |
+| `mock_api_campaign_ids` | `dict[str, str]` | `variant_id → mock_campaign_id` |
+| `metrics.emails_scheduled` | `int` | Total emails queued |
+| `metrics.executed_at` | `str` | ISO-8601 timestamp |
+| `metrics.errors` | `list[str]` | Per-variant error messages |
+
+#### Internal Steps
+1. No LLM call (temperature `0.0`, acts as orchestrator)
+2. Per variant: validates customer IDs → Mock API, filters invalids, calls `schedule_campaign()`
+3. Persists `mock_campaign_id` to `VariantRepository` and writes `ExecutionLog` records
+4. Uses `asyncio.run_in_executor` for blocking Mock API calls
+
+---
+
+### 7. `MonitoringAgent`
+**File:** `backend/app/agents/monitoring.py`  
+**Purpose:** Fetches aggregated and per-customer performance metrics from the Mock Campaign API.
+
+#### Input
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `campaign_id` | `str` | Campaign identifier |
+| `mock_api_campaign_ids` | `dict[str, str] \| null` | `variant_id → mock_campaign_id` |
+
+#### Output
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `variant_metrics` | `list[dict]` | Per-variant: `open_rate`, `click_rate`, `click_through_rate`, `total_sent`, `unique_opens`, `unique_clicks`, `collected_at` |
+| `aggregates` | `dict` | `avg_open_rate`, `avg_click_rate`, `avg_ctr`, `total_sent`, overall rates |
+| `customer_results` | `list[dict]` | Per customer: `customer_id`, `opened`, `clicked`, `open_probability`, `click_probability` |
+
+#### Internal Steps
+1. No LLM call (temperature `0.0`)
+2. Calls `get_campaign_metrics()` + `get_campaign_results()` per variant
+3. Stores `Metrics` model in MongoDB (rates stored as 0–1)
+4. In-memory cache per `campaign_id`; falls back to `MetricsRepository` if API unavailable
+
+---
+
+### 8. `OptimizationAgent`
+**File:** `backend/app/agents/optimization.py`  
+**Purpose:** Analyses metric data and produces actionable improvement recommendations for underperforming variants.
+
+#### Input
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `campaign_id` | `str` | Campaign identifier |
+| `metrics` | `dict` | Collected metrics from MonitoringAgent |
+
+#### Output
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `optimization_recommendations` | `list[dict]` | Each: `{variant_id, changes: [str, ...], priority: "high"\|"medium"\|"low"}` |
+
+**Example:**
+```json
+{
+  "optimization_recommendations": [
+    {
+      "variant_id": "abc123_v2",
+      "changes": [
+        "Shorten subject line to < 50 characters",
+        "Add first name personalisation in opening line",
+        "Move CTA button above the fold"
+      ],
+      "priority": "high"
+    }
+  ]
+}
+```
+
+#### Internal Steps
+1. LLM temperature `0.3`, max tokens `2000`
+2. **Scoring:** `score = 0.7 × click_rate + 0.3 × open_rate`
+3. **Poor performer threshold:** variants scoring < 75% of average
+4. **Rule-based fallback** (if LLM fails):
+   - `open_rate < 20%` → shorten subject, add urgency, personalise, reschedule to Tue/Wed 8–10 AM
+   - `click_rate < 5%` → CTA above fold, 2–3 benefit statements, trim to 100–200 words
+5. **Convergence check:** improvement < 5% between iterations → stop
+
+---
+
+## Shared Infrastructure — BaseAgent
+
+All agents inherit from `BaseAgent` (`backend/app/agents/base_agent.py`):
+
+| Feature | Implementation |
+|---------|----------------|
+| **LLM client** | OpenAI wrapper; tries Responses API (gpt-5/o-series) first, falls back to Chat Completions |
+| **Model** | Read from `settings.OPENAI_MODEL` (`.env`) — never hardcoded |
+| **Retry** | Exponential backoff: 1s → 2s → 4s, max 3 attempts |
+| **Output parsing** | 1) strip markdown fences → 2) direct JSON → 3) extract `{...}` → 4) extract `[...]` → 5) wrap as `{"content": raw}` |
+| **Input validation** | Pydantic `model_validate()`; raises `ValueError` on failure, logged before re-raise |
+| **Structured logging** | `_log_action(action, data)` on every key event (start, complete, validation_error, etc.) |
+| **Prompt templates** | LangChain `PromptTemplate` with named variables |
+| **Memory** | `ConversationBufferMemory` (with no-op fallback stub if LangChain unavailable) |
+
+---
+
+## Orchestration Graphs
+
+### Main Campaign Graph
+
+**File:** `backend/app/orchestration/campaign_graph.py`  
+**Framework:** LangGraph `StateGraph`  
+**State type:** `CampaignState` (TypedDict, 18 fields)
+
+#### Node Execution Order
+
+```
+START
+  │
+  ▼
+┌─────────────┐
+│ parse_brief │  CampaignBriefParserAgent
+│             │  IN:  campaign_brief (str)
+│             │  OUT: parsed_data (dict)
+└──────┬──────┘
+       │
+  ▼
+┌──────────────────┐
+│ fetch_customers  │  MockCampaignClient (paginated)
+│                  │  IN:  —
+│                  │  OUT: customers[], customer_count
+│                  │  FALLBACK: MongoDB CustomerRepository
+└────────┬─────────┘
+         │
+  ▼
+┌───────────────┐
+│ segmentation  │  CustomerSegmentationAgent
+│               │  IN:  customers[], target_audience, campaign_goal
+│               │  OUT: segments {name→ids}, checkpoint_data.segments_detail
+│               │  PERSISTS: Segment docs to MongoDB
+│               │  FALLBACK: age/activity buckets
+└──────┬────────┘
+       │
+  ▼
+┌──────────┐
+│ strategy │  CampaignStrategyAgent
+│          │  IN:  parsed_data, segments_detail, current_time
+│          │  OUT: strategy {selected_segments, send_schedule, ab_test_plan, budget_allocation}
+└────┬─────┘
+     │
+  ▼
+┌────────────────────┐
+│ content_generation │  ContentGenerationAgent (one call per selected segment)
+│                    │  IN:  parsed_brief, segment, variant_id, strategy
+│                    │  OUT: variants[]
+│                    │  PERSISTS: CampaignVariant docs to MongoDB
+└─────────┬──────────┘
+          │
+  ▼
+┌──────────┐
+│ approval │  ApprovalAgent
+│          │  IN:  campaign_id
+│          │  OUT: approval_status
+└─────┬────┘
+      │
+      ├─── "approved" ──────────────────────────────────────────┐
+      │                                                         │
+      ├─── "rejected" ──────────────────────────────────────── END
+      │
+      └─── "pending" ─────────────────────────────────────┐
+                                                          │
+                                               ┌──────────▼──────────┐
+                                               │   wait_approval     │
+                                               │  (polls, max 3×)    │
+                                               └──────────┬──────────┘
+                                                          │
+                                               loops back to ──► approval
+                                                          │
+                                               (if max waits reached) ──► END
+
+"approved" path:
+      │
+  ▼
+┌───────────┐
+│ execution │  ExecutionAgent
+│           │  IN:  campaign_id, variants[]
+│           │  OUT: execution_status, mock_api_campaign_ids, metrics
+│           │  PERSISTS: ExecutionLog, variant.mock_campaign_id
+└─────┬─────┘
+      │
+     END
+```
+
+#### State Fields
+
+| Field | Type | Populated By |
+|-------|------|-------------|
+| `campaign_id` | `str` | Initial state |
+| `campaign_brief` | `str` | Initial state |
+| `parsed_data` | `dict` | `parse_brief` node |
+| `customers` | `list[dict]` | `fetch_customers` node |
+| `customer_count` | `int` | `fetch_customers` node |
+| `segments` | `dict[str, list[str]]` | `segmentation` node |
+| `strategy` | `dict` | `strategy` node |
+| `variants` | `list[dict]` | `content_generation` node |
+| `approval_status` | `str` | `approval` node |
+| `execution_status` | `str` | `execution` node |
+| `mock_api_campaign_ids` | `dict[str, str]` | `execution` node |
+| `metrics` | `dict` | `execution` node |
+| `customer_results` | `list` | Reserved for monitoring |
+| `optimization_suggestions` | `list` | Reserved for optimization |
+| `error_messages` | `list[str]` | Any failing node |
+| `checkpoint_data` | `dict` | Cross-node transient data |
+| `mock_api_errors` | `list[dict]` | `fetch_customers` node |
+
+#### Error Handling Per Node
+
+Every node is wrapped in `_execute_node_with_retries()`:
+- **3 attempts** with exponential backoff (1s → 2s → 4s)
+- On exhaustion → deterministic **fallback** function runs
+- State saved to MongoDB after every attempt (success or fallback)
+- Checkpoint snapshot created before each attempt
+
+---
+
+### Optimization Feedback Loop
+
+**File:** `backend/app/orchestration/campaign_graph.py` (optimization section)  
+**State type:** `OptimizationState` (TypedDict, 11 fields)
+
+#### Node Execution Order
+
+```
+START
+  │
+  ▼
+┌─────────────────┐
+│ collect_metrics │  MonitoringAgent
+│                 │  IN:  campaign_id, mock_api_campaign_ids
+│                 │  OUT: current_metrics, customer_results
+│                 │  FALLBACK: MetricsRepository
+└────────┬────────┘
+         │
+  ▼
+┌──────────────────────────┐
+│ identify_poor_performers │  (Python logic, no LLM)
+│                          │  score = 0.7×click_rate + 0.3×open_rate
+│                          │  poor = bottom 25% by score
+│                          │  OUT: poor_performers[], performance_scores{}
+└────────────┬─────────────┘
+             │
+  ▼
+┌──────────────┐
+│ optimization │  OptimizationAgent
+│              │  IN:  campaign_id, current_metrics
+│              │  OUT: optimization_recommendations[]
+│              │  FALLBACK: rule-based subject/body/timing fixes
+└──────┬───────┘
+       │
+  ▼
+┌─────────────────────┐
+│ regenerate_variants │  ContentGenerationAgent
+│                     │  IN:  recommendations, original parsed_brief
+│                     │  OUT: new_variants[]
+│                     │  Cancels poor performers, schedules improved via Mock API
+└────────┬────────────┘
+         │
+  ▼
+┌─────────────────┐
+│ update_strategy │  CampaignStrategyAgent (optional)
+│                 │  Schedules new variants, increments iteration_count
+└────────┬────────┘
+         │
+         ├─── check_convergence() ──► "end"  ────────────────► END
+         │
+         └─── check_convergence() ──► "continue" ──► collect_metrics (loop)
+```
+
+#### Convergence Conditions (stops loop)
+
+| Condition | Reason |
+|-----------|--------|
+| `iteration_count >= 3` | Max iterations reached |
+| All variant scores ≥ 12.0 | Performance threshold met |
+| No poor performers identified | Campaign already optimal |
+| `error_messages` present | Error recovery — stop safely |
+
+---
+
+## State & Persistence
+
+### MongoDB Collections
+
+| Collection | Model | Contents |
+|------------|-------|----------|
+| `campaigns` | `Campaign` | Campaign document with `parsed_data`, `status`, `segments` (name list) |
+| `campaign_variants` | `CampaignVariant` | Email variant per segment — `subject_line`, `email_body`, `variant_id`, `mock_campaign_id` |
+| `customers` | `Customer` | 18-field customer records synced from Mock API |
+| `segments` | `Segment` | Rich segment documents — `customer_ids`, `segment_criteria`, `description`, `size` |
+| `metrics` | `Metrics` | Variant performance — `open_rate`, `click_rate`, `click_through_rate` (stored 0–1) |
+| `workflow_states` | `CampaignStateModel` | Full `CampaignState` snapshot per campaign |
+| `workflow_checkpoints` | — | State snapshot before each node attempt |
+| `execution_logs` | `ExecutionLog` | Per-variant execution records (SUCCESS / FAILED / SKIPPED) |
+
+### What lives where
+
+```
+campaigns.parsed_data     ← rich 14-field dict (BriefParser output)
+campaigns.segments        ← list[str] of segment names only
+segments collection       ← full Segment docs with customer_ids, criteria, size
+campaign_variants         ← EmailContent output, one doc per variant per segment
+```
+
+---
+
+## Full System Architecture Diagram
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           USER / FRONTEND                                   │
+│                                                                             │
+│  POST /campaigns           POST /campaigns/{id}/run-workflow                │
+│  (brief + parsed_data)     (triggers LangGraph)                             │
+└────────────────┬───────────────────────────────────┬────────────────────────┘
+                 │                                   │
+                 ▼                                   ▼
+┌────────────────────────┐           ┌───────────────────────────────────────┐
+│   FastAPI REST Layer   │           │         LangGraph Orchestrator        │
+│   /api/v1/campaigns    │           │         (campaign_graph.py)           │
+│   /api/v1/segments     │           │                                       │
+│   /api/v1/variants     │           │  ┌──────────────────────────────────┐ │
+│   /api/v1/metrics      │           │  │         CampaignState            │ │
+│   /api/v1/approval     │           │  │  (18 fields, persisted after     │ │
+└────────┬───────────────┘           │  │   every node)                    │ │
+         │                           │  └──────────────────────────────────┘ │
+         ▼                           │                                       │
+┌────────────────────────┐           │  parse_brief ──► fetch_customers      │
+│      MongoDB           │◄──────────│       ──► segmentation                │
+│                        │           │       ──► strategy                    │
+│  campaigns             │           │       ──► content_generation          │
+│  campaign_variants     │           │       ──► approval                    │
+│  customers             │           │       ──► [wait / reject / execute]   │
+│  segments              │           │                                       │
+│  metrics               │           │  Optimization Loop (separate graph):  │
+│  workflow_states       │           │  collect_metrics ──► identify_poor    │
+│  workflow_checkpoints  │           │       ──► optimize ──► regenerate      │
+│  execution_logs        │           │       ──► update_strategy             │
+└────────────────────────┘           │       ──► [converge or loop]          │
+                                     └──────────────┬────────────────────────┘
+                                                    │
+                                    ┌───────────────┴────────────────────────┐
+                                    │              AGENTS                    │
+                                    │                                        │
+                                    │  ┌────────────────────────────────┐    │
+                                    │  │       BaseAgent                │    │
+                                    │  │  • OpenAI LLM wrapper          │    │
+                                    │  │  • Pydantic input validation   │    │
+                                    │  │  • Exponential retry (3×)      │    │
+                                    │  │  • JSON output parsing         │    │
+                                    │  │  • Structured logging          │    │
+                                    │  │  • Model from OPENAI_MODEL env │    │
+                                    │  └────────────┬───────────────────┘    │
+                                    │               │ (inherited by)         │
+                                    │   ┌───────────┼───────────┐            │
+                                    │   ▼           ▼           ▼            │
+                                    │  Brief    Segment    Strategy           │
+                                    │  Parser   Agent      Agent             │
+                                    │   ▼           ▼           ▼            │
+                                    │  Content  Approval  Execution          │
+                                    │  Agent    Agent     Agent              │
+                                    │   ▼           ▼                        │
+                                    │  Monitor  Optimize                     │
+                                    │  Agent    Agent                        │
+                                    └────────────────┬───────────────────────┘
+                                                     │
+                                     ┌───────────────▼──────────────┐
+                                     │    Mock Campaign API         │
+                                     │  (mock-campaign-api.onrender)│
+                                     │                              │
+                                     │  GET  /api/customers         │
+                                     │  GET  /api/customers/count   │
+                                     │  POST /api/customers/validate│
+                                     │  POST /api/campaigns/schedule│
+                                     │  GET  /api/campaigns/{id}/   │
+                                     │       metrics                │
+                                     │  GET  /api/campaigns/{id}/   │
+                                     │       results                │
+                                     └──────────────────────────────┘
+```
+
+### Data Flow Summary
+
+```
+User brief (text)
+    │
+    ▼  BriefParserAgent
+Structured ParsedBrief (14 fields)
+    │
+    │
+    │  + All customers from Mock API (5000 records) or MongoDB cache
+    ▼  SegmentationAgent — Phase 1: Criteria Extraction (LLM)
+AudienceCriteria {age_min, age_max, cities, occupation_types, min_income, app_installed, ...}
+    │
+    ▼  SegmentationAgent — Phase 2: Hard Filter (Python, AND logic)
+Qualified candidate pool (e.g. 1,247 of 5,000 pass all criteria)
+    │
+    ▼  SegmentationAgent — Phase 3: Sub-Segmentation (LLM)
+Segments (3–7 named groups within the qualified pool, each with customer_ids, priority, approach)
+    │
+    ▼  StrategyAgent
+Campaign strategy (which segments, when to send, how to A/B test, budget split)
+    │
+    ▼  ContentGenerationAgent (× num_variants)
+Email variants (HTML body, subject options, personalisation tokens)
+    │
+    ▼  ApprovalAgent (reads MongoDB → human sets status via API)
+approval_status: pending → [human approves] → approved
+    │
+    ▼  ExecutionAgent
+Schedules via Mock API → mock_campaign_id per variant
+    │
+    ▼  MonitoringAgent
+open_rate, click_rate, per-customer outcomes
+    │
+    ▼  OptimizationAgent (feedback loop, max 3 iterations)
+Recommendations → regenerated variants → re-scheduled → converge
+```

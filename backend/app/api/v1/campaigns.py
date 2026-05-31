@@ -273,6 +273,29 @@ async def get_workflow_status(campaign_id: str, repo: CampaignRepoDep) -> dict[s
 
 
 @router.get(
+    "/{campaign_id}/strategy",
+    responses={**_404, **_500},
+    summary="Get AI-generated strategy for campaign",
+)
+async def get_campaign_strategy(campaign_id: str, repo: CampaignRepoDep) -> dict[str, Any]:
+    """Return the AI-generated strategy from the campaign workflow state."""
+    campaign = await repo.find_by_id(campaign_id)
+    if not campaign:
+        raise HTTPException(status_code=404, detail=_NOT_FOUND)
+    try:
+        from app.orchestration.state import StateManager  # noqa: PLC0415
+
+        state_manager = StateManager()
+        state = await state_manager.load_state(campaign_id)
+        strategy: dict[str, Any] = dict(state.get("strategy") or {})
+    except ValueError:
+        strategy = {}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to load strategy: {exc}") from exc
+    return {"campaign_id": campaign_id, "strategy": strategy if strategy else None}
+
+
+@router.get(
     "/{campaign_id}/segments",
     responses=_404,
     summary="Get customer segments for campaign",

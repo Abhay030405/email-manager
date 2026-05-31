@@ -56,7 +56,7 @@ import {
 } from "@/components/ui/table";
 import { useCampaigns } from "@/context/CampaignsContext";
 import { CampaignStatus, Segment, EmailVariant } from "@/data/campaignsData";
-import { getCampaignSegments, getCampaignVariants } from "@/lib/api";
+import { getCampaignSegments, getCampaignVariants, getCampaignStrategy, ApiStrategy } from "@/lib/api";
 import { fillPlaceholders, stripHtml } from "@/lib/emailUtils";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -93,11 +93,14 @@ const CampaignDetail = () => {
 
   const [segments, setSegments] = useState<Segment[]>([]);
   const [variants, setVariants] = useState<EmailVariant[]>([]);
+  const [strategy, setStrategy] = useState<ApiStrategy | null>(null);
 
   useEffect(() => {
     if (!id) return;
 
     const LABELS = ["A", "B", "C", "D", "E", "F"];
+
+    getCampaignStrategy(id).then(({ strategy: s }) => setStrategy(s));
 
     getCampaignSegments(id).then(({ segments: apiSegs }) => {
       setSegments(
@@ -366,9 +369,40 @@ const CampaignDetail = () => {
                   <CardTitle className="text-base font-semibold">Strategy Summary</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4 text-sm">
-                  <StrategyRow icon={Target} label="Targeting" value="Prioritize high-engagement segments first, then expand reach." />
-                  <StrategyRow icon={Clock} label="Send time" value={campaign.scheduledSend} />
-                  <StrategyRow icon={BarChart3} label="A/B test" value="Subject line, CTA copy, and send time." />
+                  <StrategyRow
+                    icon={Target}
+                    label="Targeting"
+                    value={
+                      strategy?.reasoning
+                        ? Object.values(strategy.reasoning)[0] ?? "Prioritize high-engagement segments first."
+                        : "Prioritize high-engagement segments first, then expand reach."
+                    }
+                  />
+                  <StrategyRow
+                    icon={Clock}
+                    label="Send time"
+                    value={
+                      strategy?.send_schedule && Object.keys(strategy.send_schedule).length > 0
+                        ? (() => {
+                            const [seg, iso] = Object.entries(strategy.send_schedule)[0];
+                            try {
+                              return `${seg.replace(/_/g, " ")}: ${new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`;
+                            } catch {
+                              return iso;
+                            }
+                          })()
+                        : campaign.scheduledSend
+                    }
+                  />
+                  <StrategyRow
+                    icon={BarChart3}
+                    label="A/B test"
+                    value={
+                      strategy?.ab_test_plan
+                        ? `${strategy.ab_test_plan.num_variants} variants — testing ${strategy.ab_test_plan.test_dimension}`
+                        : "Subject line, CTA copy, and send time."
+                    }
+                  />
                 </CardContent>
               </Card>
 
@@ -378,6 +412,11 @@ const CampaignDetail = () => {
                   <CardTitle className="text-base font-semibold">Actions</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-2">
+                  <Button variant="outline" className="w-full justify-start" asChild>
+                    <Link to={`/campaigns/${id}/strategy`}>
+                      <Target className="h-4 w-4 mr-2" /> View Strategy
+                    </Link>
+                  </Button>
                   {isApproved && (
                     <>
                       <Button className="w-full justify-start" onClick={() => setView("metrics")}>

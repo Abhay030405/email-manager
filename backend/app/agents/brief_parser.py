@@ -109,9 +109,9 @@ and respond with ONLY a valid JSON object — no markdown fences, no extra text.
   "product_name":        "<string>  — name of the product or service being promoted",
   "product_description": "<string>  — short description of the product/service",
   "target_audience":     "<string>  — full target audience summary (all details combined)",
-  "audience_who":        "<string>  — WHO to target: demographics, job type, age range, behaviour",
-  "audience_location":   "<string>  — location/city/region preference, empty string if not mentioned",
-  "audience_filters":    "<string>  — any extra filters: income, credit score, app usage, KYC, etc.; empty string if none",
+  "audience_who":        "<string>  — WHO to target: include Gender (Male/Female/Other), Occupation_type (Full-time/Part-time/Self-employed/Retired/Student), Marital_Status (Married/Single/Divorced/Widowed), age range, and behavioural traits if present; exclude location and numeric filters",
+  "audience_location":   "<string>  — location/city/region/tier preference, empty string if not mentioned",
+  "audience_filters":    "<string>  — numeric and flag-based filters only; extract the following if present: Monthly_Income (e.g. 'Monthly_Income > 50000'), Credit_score (e.g. 'Credit_score >= 700'), App_Installed (Y/N), Existing_Customer (Y/N), KYC_status (Y/N), Social_Media_Active (Y/N), Kids_in_Household (e.g. 'Kids_in_Household >= 1'), Family_Size (e.g. 'Family_Size >= 4'); use field=value or field>value format; empty string if none",
   "campaign_goal":       "<string>  — MUST be one of: awareness | conversion | retention | engagement",
   "campaign_objective":  "<string>  — a full, descriptive sentence (or short paragraph) combining the primary objective, secondary objective, and success metrics from the brief; empty string if no explicit goal is stated",
   "campaign_name":       "<string>  — a short, memorable campaign label of 15-20 characters synthesised from the product name and goal (e.g. 'XDeposit Launch Q2'); ALWAYS generate one even if not stated in the brief",
@@ -128,9 +128,9 @@ and respond with ONLY a valid JSON object — no markdown fences, no extra text.
 - budget: strip currency symbols and "k" multipliers (e.g. "$5k" → 5000.0).
 - cta_link: return empty string if no valid URL is present.
 - key_messages: even if written as prose, split into 3–5 individual bullet-style strings.
-- audience_who: capture person type + age + behavioural description only — no location, no numeric filters.
-- audience_location: extract ONLY city/region/tier mentions (e.g. "Metro cities", "Delhi, Mumbai").
-- audience_filters: extract ONLY numeric or flag-based filters (income, credit score, KYC, app installed, etc.).
+- audience_who: capture Gender, Occupation_type, Marital_Status, age range, and behavioural traits — NO location, NO numeric/flag filters. Use the exact enum values: Gender=Male/Female/Other, Occupation_type=Full-time/Part-time/Self-employed/Retired/Student, Marital_Status=Married/Single/Divorced/Widowed.
+- audience_location: extract ONLY city/region/tier mentions (e.g. "Metro cities", "Delhi, Mumbai"). Nothing else.
+- audience_filters: extract ONLY the following DB fields when explicitly mentioned: Monthly_Income, Credit_score, App_Installed, Existing_Customer, KYC_status, Social_Media_Active, Kids_in_Household, Family_Size. Format each as "Field operator value" (e.g. "Monthly_Income > 50000, App_Installed = Y, KYC_status = Y"). Leave empty string if none are mentioned.
 - campaign_objective: write a full, human-readable description combining the primary goal, secondary goal, and success metrics found in the brief. Use complete sentences. If multiple objectives are present, include them all. Do NOT invent goals that are not stated.
 - campaign_name: ALWAYS generate a short label (15–20 characters) from the product name + campaign goal. If the brief already contains a campaign name, use that instead.
 - Do NOT invent facts not present in the brief.
@@ -161,24 +161,25 @@ Response:
 
 ---
 
-Brief: "Target salaried professionals aged 25-45 in metro cities. Monthly income > 50k, \
-app installed. Goal: drive sign-ups for XDeposit at https://example.com/xdeposit."
+Brief: "Target married salaried professionals aged 25-45 in metro cities. Monthly income > 50k, \
+app installed, KYC verified, credit score above 700. Family size 3+. Goal: drive sign-ups for \
+XDeposit at https://example.com/xdeposit."
 
 Response:
 {{
   "product_name": "XDeposit",
-  "product_description": "Investment / deposit product",
-  "target_audience": "Salaried professionals aged 25-45 in metro cities with monthly income > 50k and app installed",
-  "audience_who": "Salaried professionals aged 25-45",
+  "product_description": "Investment / deposit product offering higher returns",
+  "target_audience": "Married salaried professionals aged 25-45 in metro cities with income > 50k, app installed, KYC verified, credit score > 700, family size 3+",
+  "audience_who": "Occupation_type = Full-time, Marital_Status = Married, Age 25-45",
   "audience_location": "Metro cities",
-  "audience_filters": "Monthly Income > ₹50,000, App Installed = Yes",
+  "audience_filters": "Monthly_Income > 50000, App_Installed = Y, KYC_status = Y, Credit_score > 700, Family_Size >= 3",
   "campaign_goal": "conversion",
-  "campaign_objective": "Drive sign-ups for XDeposit among salaried professionals.",
+  "campaign_objective": "Drive sign-ups for XDeposit among married high-income salaried professionals.",
   "campaign_name": "XDeposit Metro Push",
   "cta_link": "https://example.com/xdeposit",
   "budget": null,
   "preferred_tone": "professional",
-  "key_messages": ["Safe investment option", "Higher returns", "Easy sign-up"],
+  "key_messages": ["Safe investment option", "Higher returns than FD", "Easy sign-up in minutes"],
   "constraints": null
 }}
 

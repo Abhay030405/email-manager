@@ -63,6 +63,21 @@ export interface ApiSegment {
   segment_criteria: ApiSegmentCriteria | null;
 }
 
+export interface ApiABTestPlan {
+  num_variants: number;
+  variant_distribution: number[];
+  test_dimension: string;
+}
+
+export interface ApiStrategy {
+  selected_segments: string[];
+  send_schedule: Record<string, string>;
+  ab_test_plan: ApiABTestPlan | null;
+  budget_allocation: Record<string, number>;
+  expected_metrics: Record<string, number>;
+  reasoning: Record<string, string>;
+}
+
 export interface ApiMetrics {
   variant_id: string;
   campaign_id: string;
@@ -109,6 +124,12 @@ export async function patchCampaignStatus(id: string, status: string): Promise<A
 export async function getCampaignVariants(id: string): Promise<{ variants: ApiVariant[] }> {
   const res = await fetch(`${API_BASE}/api/v1/campaigns/${id}/variants`);
   if (!res.ok) return { variants: [] };
+  return res.json();
+}
+
+export async function getCampaignStrategy(id: string): Promise<{ campaign_id: string; strategy: ApiStrategy | null }> {
+  const res = await fetch(`${API_BASE}/api/v1/campaigns/${id}/strategy`);
+  if (!res.ok) return { campaign_id: id, strategy: null };
   return res.json();
 }
 

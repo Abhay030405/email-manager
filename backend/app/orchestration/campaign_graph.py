@@ -148,9 +148,11 @@ def _fallback_segmentation(state: CampaignState) -> CampaignState:
 		cid = customer.get("customer_id")
 		if not cid:
 			continue
-		status = str(customer.get("activity_status", "")).lower()
-		age = int(customer.get("age", 0) or 0)
-		if status == "active":
+		# Customer dicts use PascalCase field names (model_dump() output)
+		existing = str(customer.get("Existing_Customer", "N")).upper()
+		app = str(customer.get("App_Installed", "N")).upper()
+		age = int(customer.get("Age", 0) or 0)
+		if existing == "Y" and app == "Y":
 			segments["active_customers"].append(cid)
 		else:
 			segments["inactive_customers"].append(cid)
@@ -458,11 +460,21 @@ async def segmentation_node(state: CampaignState) -> CampaignState:
 			else {
 				"customers": current_state.get("customers", []),
 				"target_audience": parsed_data.get("target_audience", "General audience"),
+				"audience_who": parsed_data.get("audience_who", ""),
+				"audience_location": parsed_data.get("audience_location", ""),
+				"audience_filters": parsed_data.get("audience_filters", ""),
 				"campaign_goal": _safe_goal(parsed_data.get("campaign_goal")),
 			},
 		)
 
-		# If a parse-only API is present, it may return mapping directly.
+		# Log filter outcome from the new 3-phase agent
+		if isinstance(result, dict) and "qualified_count" in result:
+			logger.info(
+				"segmentation: %d of %d customers qualified after criteria filter",
+				result.get("qualified_count", 0),
+				result.get("total_customers", 0),
+			)
+
 		if isinstance(result, dict) and "segments" in result and isinstance(result["segments"], list):
 			segment_entries = result["segments"]
 			segments_map = {

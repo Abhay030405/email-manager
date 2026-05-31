@@ -27,7 +27,7 @@ const App = () => (
             <Route path="/" element={<Index />} />
             <Route path="/campaigns" element={<Campaigns />} />
             <Route path="/campaigns/create" element={<CreateCampaign />} />
-            <Route path="/campaigns/strategy" element={<CampaignStrategy />} />
+            <Route path="/campaigns/:id/strategy" element={<CampaignStrategy />} />
             <Route path="/campaigns/approval" element={<CampaignApproval />} />
             <Route path="/campaigns/metrics" element={<CampaignMetrics />} />
             <Route path="/campaigns/:id" element={<CampaignDetail />} />
