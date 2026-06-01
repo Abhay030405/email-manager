@@ -50,9 +50,10 @@ class Settings(BaseSettings):
     MONGODB_DB_NAME: str = "campaignx"
     DATABASE_NAME: str = ""        # when set, takes precedence over MONGODB_DB_NAME
 
-    # ── AI Configuration ─────────────────────────────────────────────
-    OPENAI_API_KEY: str = ""
-    OPENAI_MODEL: str = "gpt-4"
+    # ── AI Configuration (OpenRouter) ────────────────────────────────
+    OPENROUTER_API_KEY: str = ""
+    OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
+    LLM_MODEL: str = "google/gemini-2.5-flash-lite"
 
     # ── Mock Campaign API ─────────────────────────────────────────────
     MOCK_CAMPAIGN_API_URL: str = "https://mock-campaign-api.onrender.com"
@@ -114,21 +115,21 @@ class Settings(BaseSettings):
             logger.warning("MongoDB connectivity check failed: %s", exc)
             return {"status": "error", "detail": str(exc)}
 
-    async def validate_openai_api_key(self) -> dict[str, Any]:
-        """Test the OpenAI API key with a lightweight models list call."""
-        if not self.OPENAI_API_KEY:
+    async def validate_llm_api_key(self) -> dict[str, Any]:
+        """Test the OpenRouter API key with a lightweight models list call."""
+        if not self.OPENROUTER_API_KEY:
             return {"status": "not_configured"}
         try:
             async with httpx.AsyncClient(timeout=10) as client:
                 resp = await client.get(
-                    "https://api.openai.com/v1/models",
-                    headers={"Authorization": f"Bearer {self.OPENAI_API_KEY}"},
+                    f"{self.OPENROUTER_BASE_URL}/models",
+                    headers={"Authorization": f"Bearer {self.OPENROUTER_API_KEY}"},
                 )
             if resp.status_code == 200:
                 return {"status": "ok"}
             return {"status": "error", "detail": f"HTTP {resp.status_code}"}
         except Exception as exc:
-            logger.warning("OpenAI API key check failed: %s", exc)
+            logger.warning("OpenRouter API key check failed: %s", exc)
             return {"status": "error", "detail": str(exc)}
 
     async def validate_mock_api_connection(self) -> dict[str, Any]:

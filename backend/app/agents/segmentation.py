@@ -163,10 +163,24 @@ audience_filters  : {audience_filters}
 - min_kids                  : int | null — minimum Kids_in_Household
 - min_family_size / max_family_size : int | null — Family_Size range
 
+## IMPORTANT: Multiple audience groups
+If the audience is described as multiple separate groups (e.g. "Group 1: ..., Group 2: ..."),
+you MUST produce a SINGLE merged criteria object that covers ALL groups together, using the most
+permissive (inclusive) values so that every group's members can qualify:
+- age_min: minimum of all groups' age_min values
+- age_max: maximum of all groups' age_max values (omit if any group has no upper bound)
+- gender, occupation_types, marital_status, cities: UNION of all values across all groups
+- min_income: lowest threshold mentioned across all groups (most permissive)
+- max_income: highest upper-bound mentioned, or null if any group has no upper bound
+- Boolean flags (app_installed, kyc_status, existing_customer, social_media_active):
+    • Set to "Y" / "N" only when EVERY group specifies the SAME value for that flag.
+    • If groups disagree or any group omits the flag, set it to null (no restriction).
+
 ## Rules
 - Set ONLY fields that are explicitly mentioned in the audience description.
 - Leave all other fields as null or [].
 - Do NOT invent criteria not stated in the input.
+- Always return a SINGLE flat JSON object, never an array.
 
 ## Required JSON schema
 {{
@@ -215,20 +229,28 @@ Location top-5 :
 {location_distribution}
 
 ## Pre-computed sub-groups (within the qualified pool)
+Each line is a named group you may reference. Group names are exact — copy them precisely.
 {candidate_groups}
 
 ## Instructions
-1. Choose {min_seg}–{max_seg} sub-groups that best serve the campaign goal.
-2. Merge similar groups if needed; skip any covering < {min_pct_int}% of the qualified pool.
-3. Assign targeting_priority (1–5, 5=highest) based on fit with the goal.
-4. Ensure ALL {qualified_count} qualified customers are in at least one segment.
-5. Respond with ONLY a valid JSON array — no markdown, no extra text.
+1. Choose {min_seg}–{max_seg} sub-groups from the list above that best serve the campaign goal.
+2. You may combine multiple groups into one segment by listing all relevant group names.
+3. Merge similar groups if needed; every segment must cover ≥ {min_pct_int}% of the qualified pool.
+4. Together your segments must cover ALL pre-computed groups so that every qualified customer
+   belongs to at least one segment.
+5. Assign targeting_priority (1–5, 5=highest) based on fit with the goal.
+6. Respond with ONLY a valid JSON array — no markdown, no extra text.
+
+## IMPORTANT
+- The "candidate_groups" field must contain group names copied EXACTLY from the
+  "Pre-computed sub-groups" section above.
+- Do NOT invent customer IDs or group names — reference only the names listed above.
 
 ## Required JSON schema for each element
 {{
-  "segment_name"       : "<snake_case name>",
+  "segment_name"       : "<snake_case label for this segment>",
   "description"        : "<why this sub-segment matters for the campaign>",
-  "customer_ids"       : ["<id>", ...],
+  "candidate_groups"   : ["<exact_group_name_from_list>", ...],
   "targeting_priority" : <1-5>,
   "recommended_approach": "<1-2 sentence tactical guidance>"
 }}
@@ -285,6 +307,15 @@ class CustomerSegmentationAgent(BaseAgent):
         # ── Phase 3: Segment the qualified pool via LLM ───────────────────────
         segments_list = await self._segment_pool(seg_input, qualified, total, criteria)
 
+        # Strip any hallucinated/invalid IDs the LLM may have produced.
+        # Only customer_ids that exist in the qualified pool are kept;
+        # _ensure_coverage below will then fill gaps with the real unassigned IDs.
+        valid_cid_set = {c.customer_id for c in qualified}
+        for seg in segments_list:
+            seg["customer_ids"] = [
+                cid for cid in seg.get("customer_ids", []) if cid in valid_cid_set
+            ]
+
         # Ensure full coverage of qualified pool
         segments_list = self._ensure_coverage(segments_list, qualified)
 
@@ -339,6 +370,11 @@ class CustomerSegmentationAgent(BaseAgent):
         )
         raw = await self._retry_with_backoff(self._call_llm, prompt)
         parsed = self._parse_llm_output(raw)
+
+        # LLM returned an array of per-group criteria — merge into one
+        if isinstance(parsed, list):
+            parsed = self._merge_criteria_list(parsed)
+
         if not isinstance(parsed, dict):
             logger.warning("Criteria extraction returned non-dict; using empty criteria")
             return AudienceCriteria()
@@ -347,6 +383,55 @@ class CustomerSegmentationAgent(BaseAgent):
         except Exception as exc:
             logger.warning("AudienceCriteria validation failed (%s); using empty criteria", exc)
             return AudienceCriteria()
+
+    @staticmethod
+    def _merge_criteria_list(criteria_list: list) -> dict:
+        """Merge a list of per-group criteria dicts into one permissive union criteria."""
+        dicts = [c for c in criteria_list if isinstance(c, dict)]
+        if not dicts:
+            return {}
+        merged: dict = {}
+        CustomerSegmentationAgent._merge_age(dicts, merged)
+        CustomerSegmentationAgent._merge_list_fields(dicts, merged)
+        CustomerSegmentationAgent._merge_income(dicts, merged)
+        CustomerSegmentationAgent._merge_flags(dicts, merged)
+        return merged
+
+    @staticmethod
+    def _merge_age(dicts: list[dict], merged: dict) -> None:
+        age_mins = [c["age_min"] for c in dicts if c.get("age_min") is not None]
+        age_maxs = [c["age_max"] for c in dicts if c.get("age_max") is not None]
+        if age_mins:
+            merged["age_min"] = min(age_mins)
+        if age_maxs and len(age_maxs) == len(dicts):
+            merged["age_max"] = max(age_maxs)
+
+    @staticmethod
+    def _merge_list_fields(dicts: list[dict], merged: dict) -> None:
+        for field in ("gender", "occupation_types", "marital_status", "cities"):
+            vals: set = set()
+            for c in dicts:
+                vals.update(c.get(field) or [])
+            if vals:
+                merged[field] = list(vals)
+
+    @staticmethod
+    def _merge_income(dicts: list[dict], merged: dict) -> None:
+        min_incomes = [c["min_income"] for c in dicts if c.get("min_income") is not None]
+        if min_incomes:
+            merged["min_income"] = min(min_incomes)
+        max_incomes = [c["max_income"] for c in dicts if c.get("max_income") is not None]
+        if max_incomes and len(max_incomes) == len(dicts):
+            merged["max_income"] = max(max_incomes)
+
+    @staticmethod
+    def _merge_flags(dicts: list[dict], merged: dict) -> None:
+        n = len(dicts)
+        for flag in ("app_installed", "kyc_status", "existing_customer", "social_media_active"):
+            flag_vals = [c[flag] for c in dicts if c.get(flag) is not None]
+            unanimous = len(flag_vals) == n and len(set(flag_vals)) == 1
+            if unanimous:
+                merged[flag] = flag_vals[0]
 
     # ── Phase 2: Hard filter (AND logic) ─────────────────────────────────────
 
@@ -438,22 +523,47 @@ class CustomerSegmentationAgent(BaseAgent):
 
         raw = await self._retry_with_backoff(self._call_llm, prompt)
         parsed = self._parse_llm_output(raw)
+        segments = self._extract_segment_list(parsed, raw)
+        return self._resolve_customer_ids(segments, candidate_groups)
 
+    @staticmethod
+    def _extract_segment_list(parsed: Any, raw: str) -> list[dict]:
+        """Coerce the LLM output into a flat list of segment dicts."""
         if isinstance(parsed, list):
             return parsed
         if isinstance(parsed, dict):
             for key in ("segments", "data"):
-                if key in parsed and isinstance(parsed[key], list):
+                if isinstance(parsed.get(key), list):
                     return parsed[key]
-            vals = list(parsed.values())
-            if vals and isinstance(vals[0], list):
-                return vals[0]
-        # Last resort: try re-parsing raw string as JSON array
+            first_val = next(iter(parsed.values()), None)
+            if isinstance(first_val, list):
+                return first_val
         try:
             result = json.loads(raw) if isinstance(raw, str) else []
             return result if isinstance(result, list) else []
         except Exception:
             return []
+
+    @staticmethod
+    def _resolve_customer_ids(
+        segments: list[dict], candidate_groups: dict[str, list[str]]
+    ) -> list[dict]:
+        """Replace each segment's 'candidate_groups' names with actual customer_ids.
+
+        The LLM returns group names (e.g. "gen_x_senior_active"); this method
+        looks up those names in the pre-computed candidate_groups map and unions
+        the real customer IDs into each segment's customer_ids list.
+        """
+        for seg in segments:
+            group_names = seg.pop("candidate_groups", None)
+            if group_names and isinstance(group_names, list):
+                ids: set[str] = set()
+                for gname in group_names:
+                    ids.update(candidate_groups.get(gname, []))
+                seg["customer_ids"] = list(ids)
+            elif not seg.get("customer_ids"):
+                seg["customer_ids"] = []
+        return segments
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -520,9 +630,7 @@ class CustomerSegmentationAgent(BaseAgent):
             pct = len(ids) / total * 100 if total else 0
             if pct < _MIN_SEGMENT_PCT * 100:
                 continue
-            preview = ids[:3]
-            suffix = f" … +{len(ids) - 3} more" if len(ids) > 3 else ""
-            lines.append(f"  {name} ({len(ids)} customers, {pct:.1f}%): {preview}{suffix}")
+            lines.append(f"  {name} ({len(ids)} customers, {pct:.1f}%)")
         return "\n".join(lines) if lines else "  (no sub-groups met minimum size)"
 
     @staticmethod

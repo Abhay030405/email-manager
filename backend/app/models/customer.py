@@ -77,10 +77,10 @@ class Customer(BaseModel):
     @field_validator("customer_id")
     @classmethod
     def validate_customer_id(cls, v: str) -> str:
-        """Ensure customer_id matches CUST#### format."""
-        if not re.match(r"^CUST\d{4}$", v):
+        """Ensure customer_id matches CUST#### format (4-5 digits)."""
+        if not re.match(r"^CUST\d{4,5}$", v):
             raise ValueError(
-                "customer_id must match pattern CUST followed by 4 digits"
+                "customer_id must match pattern CUST followed by 4 or 5 digits"
             )
         return v
 

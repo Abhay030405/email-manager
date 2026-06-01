@@ -5,7 +5,7 @@ const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 export interface ApiParsedData {
   product_name: string;
   product_description: string;
-  target_audience: string;
+  target_audience: Record<string, unknown> | string;
   audience_who: string;
   audience_location: string;
   audience_filters: string;
@@ -124,6 +124,16 @@ export async function patchCampaignStatus(id: string, status: string): Promise<A
 export async function getCampaignVariants(id: string): Promise<{ variants: ApiVariant[] }> {
   const res = await fetch(`${API_BASE}/api/v1/campaigns/${id}/variants`);
   if (!res.ok) return { variants: [] };
+  return res.json();
+}
+
+export async function executeApprovedCampaign(id: string): Promise<void> {
+  await fetch(`${API_BASE}/api/v1/campaigns/${id}/execute`, { method: "POST" });
+}
+
+export async function getCampaignLiveMetrics(id: string): Promise<ApiMetrics[]> {
+  const res = await fetch(`${API_BASE}/api/v1/campaigns/${id}/metrics`);
+  if (!res.ok) return [];
   return res.json();
 }
 

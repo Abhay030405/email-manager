@@ -4,14 +4,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.agents.brief_parser import CampaignBriefParserAgent, BriefInput, ParsedBrief
+from app.agents.brief_parser import AudienceGroup, CampaignBriefParserAgent, BriefInput, ParsedBrief
 
 
 def _make_agent() -> CampaignBriefParserAgent:
     """Create agent with a mocked LLM so no real API calls happen."""
-    with patch("app.agents.base_agent.ChatOpenAI") as mock_llm_cls:
-        mock_llm = MagicMock()
-        mock_llm_cls.return_value = mock_llm
+    mock_llm = MagicMock()
+    with patch("app.agents.base_agent.BaseAgent.setup_llm", return_value=mock_llm):
         agent = CampaignBriefParserAgent()
     return agent
 
@@ -19,7 +18,15 @@ def _make_agent() -> CampaignBriefParserAgent:
 VALID_LLM_RESPONSE = """{
   "product_name": "XDeposit",
   "product_description": "High-yield savings account",
-  "target_audience": "Young professionals aged 25-35",
+  "target_audience": {
+    "Group 1": {
+      "min_age": 25, "max_age": 35, "Marital_Status": null, "Family_Size": null,
+      "Dependent_count": null, "Occupation": null, "Occupation_type": "Full-time",
+      "Monthly_Income": null, "KYC_status": null, "City": null,
+      "Kids_in_Household": null, "App_Installed": null, "Existing_Customer": null,
+      "Credit_score": null, "Social_Media_Active": null
+    }
+  },
   "campaign_goal": "conversion",
   "cta_link": "https://example.com/xdeposit",
   "budget": 50000.0,
@@ -150,24 +157,25 @@ class TestParsedBrief:
     def test_valid_parsed_brief(self):
         pb = ParsedBrief(
             product_name="TestProduct",
-            target_audience="Young adults",
+            target_audience={"Group 1": AudienceGroup(min_age=18, max_age=35)},
             campaign_goal="conversion",
         )
         assert pb.product_name == "TestProduct"
         assert pb.campaign_goal == "conversion"
+        assert "Group 1" in pb.target_audience
 
     def test_invalid_campaign_goal_raises(self):
         with pytest.raises(ValueError):
             ParsedBrief(
                 product_name="P",
-                target_audience="T",
+                target_audience={"Group 1": {}},
                 campaign_goal="invalid_goal",
             )
 
     def test_invalid_tone_falls_back_to_professional(self):
         pb = ParsedBrief(
             product_name="P",
-            target_audience="T",
+            target_audience={"Group 1": {}},
             campaign_goal="awareness",
             preferred_tone="nonsense",
         )
@@ -177,14 +185,14 @@ class TestParsedBrief:
         with pytest.raises(ValueError):
             ParsedBrief(
                 product_name="unknown",
-                target_audience="T",
+                target_audience={"Group 1": {}},
                 campaign_goal="awareness",
             )
 
     def test_cta_link_validated(self):
         pb = ParsedBrief(
             product_name="P",
-            target_audience="T",
+            target_audience={"Group 1": {}},
             campaign_goal="awareness",
             cta_link="https://valid.url/path",
         )
@@ -194,7 +202,14 @@ class TestParsedBrief:
         with pytest.raises(ValueError):
             ParsedBrief(
                 product_name="P",
-                target_audience="T",
+                target_audience={"Group 1": {}},
                 campaign_goal="awareness",
                 cta_link="not-a-url",
             )
+
+    def test_target_audience_defaults_when_empty(self):
+        pb = ParsedBrief(
+            product_name="P",
+            campaign_goal="awareness",
+        )
+        assert pb.target_audience == {"Group 1": AudienceGroup()}

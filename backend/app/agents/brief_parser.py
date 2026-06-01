@@ -19,6 +19,26 @@ _ALLOWED_TONES = {"professional", "casual", "friendly", "urgent"}
 _BUDGET_RE = re.compile(r"\$?\s*([\d,]+(?:\.\d{1,2})?)\s*[kK]?")
 
 
+class AudienceGroup(BaseModel):
+    """Structured demographic/behavioural profile for one target audience segment."""
+
+    min_age: Optional[int] = None
+    max_age: Optional[int] = None
+    Marital_Status: Optional[str] = None        # Single | Married | Divorced
+    Family_Size: Optional[int] = None
+    Dependent_count: Optional[int] = None
+    Occupation: Optional[str] = None
+    Occupation_type: Optional[str] = None       # Full-time | Part-time | Self-employed
+    Monthly_Income: Optional[int] = None        # absolute integer e.g. 30000
+    KYC_status: Optional[str] = None            # Y | N
+    City: Optional[str] = None
+    Kids_in_Household: Optional[int] = None
+    App_Installed: Optional[str] = None         # Y | N
+    Existing_Customer: Optional[str] = None     # Y | N
+    Credit_score: Optional[int] = None
+    Social_Media_Active: Optional[str] = None   # Y | N
+
+
 class BriefInput(BaseModel):
     """Input schema for the brief parser agent."""
 
@@ -38,10 +58,7 @@ class ParsedBrief(BaseModel):
 
     product_name: str
     product_description: str = "Not specified"
-    target_audience: str
-    audience_who: str = ""
-    audience_location: str = ""
-    audience_filters: str = ""
+    target_audience: dict[str, AudienceGroup] = Field(default_factory=dict)
     campaign_goal: str
     campaign_objective: str = ""
     campaign_name: str = ""
@@ -91,10 +108,8 @@ class ParsedBrief(BaseModel):
                 "Critically required fields could not be extracted: ['product_name']. "
                 "Please provide a more detailed campaign brief."
             )
-        # target_audience should already be synthesized by _post_process;
-        # apply a last-resort fallback here rather than failing.
-        if not self.target_audience or self.target_audience.lower() in {"unknown", "not specified"}:
-            self.target_audience = "General audience"
+        if not self.target_audience:
+            self.target_audience = {"Group 1": AudienceGroup()}
         return self
 
 
@@ -108,31 +123,45 @@ and respond with ONLY a valid JSON object — no markdown fences, no extra text.
 {{
   "product_name":        "<string>  — name of the product or service being promoted",
   "product_description": "<string>  — short description of the product/service",
-  "target_audience":     "<string>  — full target audience summary (all details combined)",
-  "audience_who":        "<string>  — WHO to target: include Gender (Male/Female/Other), Occupation_type (Full-time/Part-time/Self-employed/Retired/Student), Marital_Status (Married/Single/Divorced/Widowed), age range, and behavioural traits if present; exclude location and numeric filters",
-  "audience_location":   "<string>  — location/city/region/tier preference, empty string if not mentioned",
-  "audience_filters":    "<string>  — numeric and flag-based filters only; extract the following if present: Monthly_Income (e.g. 'Monthly_Income > 50000'), Credit_score (e.g. 'Credit_score >= 700'), App_Installed (Y/N), Existing_Customer (Y/N), KYC_status (Y/N), Social_Media_Active (Y/N), Kids_in_Household (e.g. 'Kids_in_Household >= 1'), Family_Size (e.g. 'Family_Size >= 4'); use field=value or field>value format; empty string if none",
+  "target_audience": {{
+    "Group 1": {{
+      "min_age":           <int|null>,
+      "max_age":           <int|null>,
+      "Marital_Status":    <"Single"|"Married"|"Divorced"|null>,
+      "Family_Size":       <int|null>,
+      "Dependent_count":   <int|null>,
+      "Occupation":        <string|null>,
+      "Occupation_type":   <"Full-time"|"Part-time"|"Self-employed"|null>,
+      "Monthly_Income":    <int|null>,
+      "KYC_status":        <"Y"|"N"|null>,
+      "City":              <string|null>,
+      "Kids_in_Household": <int|null>,
+      "App_Installed":     <"Y"|"N"|null>,
+      "Existing_Customer": <"Y"|"N"|null>,
+      "Credit_score":      <int|null>,
+      "Social_Media_Active": <"Y"|"N"|null>
+    }},
+    "Group 2": {{ ... }}
+  }},
   "campaign_goal":       "<string>  — MUST be one of: awareness | conversion | retention | engagement",
-  "campaign_objective":  "<string>  — a full, descriptive sentence (or short paragraph) combining the primary objective, secondary objective, and success metrics from the brief; empty string if no explicit goal is stated",
-  "campaign_name":       "<string>  — a short, memorable campaign label of 15-20 characters synthesised from the product name and goal (e.g. 'XDeposit Launch Q2'); ALWAYS generate one even if not stated in the brief",
+  "campaign_objective":  "<string>  — a full, descriptive sentence combining the primary objective, secondary objective, and success metrics; empty string if none stated",
+  "campaign_name":       "<string>  — a short, memorable campaign label of 15-20 characters; ALWAYS generate one",
   "cta_link":            "<string>  — CTA URL if present, otherwise empty string",
-  "budget":              <number|null> — numeric budget in USD (e.g. 5000.0), null if absent",
+  "budget":              <number|null>,
   "preferred_tone":      "<string>  — MUST be one of: professional | casual | friendly | urgent",
-  "key_messages":        ["<string>", ...]  — 3-5 key selling points or messages",
-  "constraints":         "<string|null> — any stated restrictions, timing, or compliance notes"
+  "key_messages":        ["<string>", ...],
+  "constraints":         "<string|null>"
 }}
 
 ## Rules
-- If a field cannot be inferred, use the safest default (empty string / null / "professional").
+- target_audience: create one group per DISTINCT audience segment described. If only one segment, produce only "Group 1".
+- Each group field must be null if NOT explicitly stated in the brief. Do NOT infer or predict.
+- Monthly_Income must be an absolute integer (e.g. 30000, not "30L" or "30k").
 - campaign_goal: map "sales"→conversion, "brand"→awareness, "loyal"→retention, "interact"→engagement.
 - budget: strip currency symbols and "k" multipliers (e.g. "$5k" → 5000.0).
 - cta_link: return empty string if no valid URL is present.
-- key_messages: even if written as prose, split into 3–5 individual bullet-style strings.
-- audience_who: capture Gender, Occupation_type, Marital_Status, age range, and behavioural traits — NO location, NO numeric/flag filters. Use the exact enum values: Gender=Male/Female/Other, Occupation_type=Full-time/Part-time/Self-employed/Retired/Student, Marital_Status=Married/Single/Divorced/Widowed.
-- audience_location: extract ONLY city/region/tier mentions (e.g. "Metro cities", "Delhi, Mumbai"). Nothing else.
-- audience_filters: extract ONLY the following DB fields when explicitly mentioned: Monthly_Income, Credit_score, App_Installed, Existing_Customer, KYC_status, Social_Media_Active, Kids_in_Household, Family_Size. Format each as "Field operator value" (e.g. "Monthly_Income > 50000, App_Installed = Y, KYC_status = Y"). Leave empty string if none are mentioned.
-- campaign_objective: write a full, human-readable description combining the primary goal, secondary goal, and success metrics found in the brief. Use complete sentences. If multiple objectives are present, include them all. Do NOT invent goals that are not stated.
-- campaign_name: ALWAYS generate a short label (15–20 characters) from the product name + campaign goal. If the brief already contains a campaign name, use that instead.
+- key_messages: split into 3–5 individual bullet-style strings.
+- campaign_name: ALWAYS generate a short label (15–20 characters). Use the brief's name if one is given.
 - Do NOT invent facts not present in the brief.
 
 ## Examples
@@ -145,10 +174,15 @@ Response:
 {{
   "product_name": "CloudStorage Pro",
   "product_description": "Cloud storage plan for small and medium businesses",
-  "target_audience": "SMB owners",
-  "audience_who": "SMB owners",
-  "audience_location": "",
-  "audience_filters": "",
+  "target_audience": {{
+    "Group 1": {{
+      "min_age": null, "max_age": null, "Marital_Status": null, "Family_Size": null,
+      "Dependent_count": null, "Occupation": "SMB owner", "Occupation_type": null,
+      "Monthly_Income": null, "KYC_status": null, "City": null,
+      "Kids_in_Household": null, "App_Installed": null, "Existing_Customer": null,
+      "Credit_score": null, "Social_Media_Active": null
+    }}
+  }},
   "campaign_goal": "conversion",
   "campaign_objective": "Drive new sign-ups for the CloudStorage Pro plan.",
   "campaign_name": "CloudStorage Launch",
@@ -161,20 +195,32 @@ Response:
 
 ---
 
-Brief: "Target married salaried professionals aged 25-45 in metro cities. Monthly income > 50k, \
-app installed, KYC verified, credit score above 700. Family size 3+. Goal: drive sign-ups for \
-XDeposit at https://example.com/xdeposit."
+Brief: "Target married salaried professionals aged 25-45 in metro cities (monthly income > 50k, \
+app installed, KYC verified, credit score above 700, family size 3+) AND single students aged \
+18-24 without the app. Goal: drive sign-ups for XDeposit at https://example.com/xdeposit."
 
 Response:
 {{
   "product_name": "XDeposit",
-  "product_description": "Investment / deposit product offering higher returns",
-  "target_audience": "Married salaried professionals aged 25-45 in metro cities with income > 50k, app installed, KYC verified, credit score > 700, family size 3+",
-  "audience_who": "Occupation_type = Full-time, Marital_Status = Married, Age 25-45",
-  "audience_location": "Metro cities",
-  "audience_filters": "Monthly_Income > 50000, App_Installed = Y, KYC_status = Y, Credit_score > 700, Family_Size >= 3",
+  "product_description": "Investment / deposit product",
+  "target_audience": {{
+    "Group 1": {{
+      "min_age": 25, "max_age": 45, "Marital_Status": "Married", "Family_Size": 3,
+      "Dependent_count": null, "Occupation": null, "Occupation_type": "Full-time",
+      "Monthly_Income": 50000, "KYC_status": "Y", "City": "Metro cities",
+      "Kids_in_Household": null, "App_Installed": "Y", "Existing_Customer": null,
+      "Credit_score": 700, "Social_Media_Active": null
+    }},
+    "Group 2": {{
+      "min_age": 18, "max_age": 24, "Marital_Status": "Single", "Family_Size": null,
+      "Dependent_count": null, "Occupation": "Student", "Occupation_type": null,
+      "Monthly_Income": null, "KYC_status": null, "City": null,
+      "Kids_in_Household": null, "App_Installed": "N", "Existing_Customer": null,
+      "Credit_score": null, "Social_Media_Active": null
+    }}
+  }},
   "campaign_goal": "conversion",
-  "campaign_objective": "Drive sign-ups for XDeposit among married high-income salaried professionals.",
+  "campaign_objective": "Drive sign-ups for XDeposit among married high-income professionals and young students.",
   "campaign_name": "XDeposit Metro Push",
   "cta_link": "https://example.com/xdeposit",
   "budget": null,
@@ -303,24 +349,18 @@ class CampaignBriefParserAgent(BaseAgent):
         data.setdefault("constraints", None)
         data.setdefault("cta_link", "")
         data.setdefault("budget", None)
-        data.setdefault("audience_who", "")
-        data.setdefault("audience_location", "")
-        data.setdefault("audience_filters", "")
         data.setdefault("campaign_objective", "")
         data.setdefault("campaign_name", "")
 
-        # -- synthesize target_audience if LLM left it blank ----------------------
-        # (can happen when max_tokens is exhausted mid-response)
-        if not data.get("target_audience"):
-            parts = [
-                p for p in [
-                    data.get("audience_who", ""),
-                    data.get("audience_location", ""),
-                    data.get("audience_filters", ""),
-                ]
-                if p
-            ]
-            data["target_audience"] = ", ".join(parts) if parts else "General audience"
+        # -- target_audience: normalise to structured group dict ------------------
+        ta = data.get("target_audience")
+        if not isinstance(ta, dict) or not ta:
+            data["target_audience"] = {"Group 1": {}}
+        else:
+            data["target_audience"] = {
+                k: v if isinstance(v, dict) else {}
+                for k, v in ta.items()
+            }
 
         return data
 

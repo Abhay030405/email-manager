@@ -1,0 +1,76 @@
+# ── Node / Next.js ──────────────────────────────────────────────
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/dist/
+frontend/build/
+
+# ── Python / FastAPI ─────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+.eggs/
+htmlcov/
+
+# ── Package locks (large, rarely useful for Claude) ──────────────
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+poetry.lock
+
+# ── Environment & Secrets ────────────────────────────────────────
+.env
+.env.*
+*.pem
+*.key
+secrets/
+
+# ── Databases & Data files ───────────────────────────────────────
+*.sqlite
+*.db
+*.csv
+*.parquet
+*.pkl
+*.h5
+data/
+datasets/
+
+# ── ML / AI model weights ────────────────────────────────────────
+*.pt
+*.pth
+*.onnx
+*.bin
+models/
+checkpoints/
+
+# ── Logs ─────────────────────────────────────────────────────────
+*.log
+logs/
+*.out
+
+# ── Cache & temp ─────────────────────────────────────────────────
+.cache/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+tmp/
+temp/
+
+# ── Media & Static assets ────────────────────────────────────────
+public/images/
+public/videos/
+*.mp4
+*.mp3
+*.zip
+*.tar.gz
+
+# ── IDE & OS ─────────────────────────────────────────────────────
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

@@ -9,8 +9,7 @@ from app.agents.strategy import CampaignStrategyAgent
 
 
 def _make_agent() -> CampaignStrategyAgent:
-    with patch("app.agents.base_agent.ChatOpenAI") as mock_llm_cls:
-        mock_llm_cls.return_value = MagicMock()
+    with patch("app.agents.base_agent.BaseAgent.setup_llm", return_value=MagicMock()):
         return CampaignStrategyAgent()
 
 

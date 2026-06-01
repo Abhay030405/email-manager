@@ -437,6 +437,21 @@ async def fetch_customers_node(state: CampaignState) -> CampaignState:
 	return await _execute_node_with_retries("fetch_customers", state, _op)
 
 
+def _target_audience_summary(ta: Any) -> str:
+	"""Convert a target_audience value (str or new group dict) to a readable string."""
+	if isinstance(ta, str):
+		return ta or "General audience"
+	if isinstance(ta, dict) and ta:
+		parts = []
+		for name, grp in ta.items():
+			if isinstance(grp, dict):
+				non_null = {k: v for k, v in grp.items() if v is not None}
+				detail = ", ".join(f"{k}={v}" for k, v in non_null.items())
+				parts.append(f"{name}: {detail}" if detail else name)
+		return "; ".join(parts) if parts else "General audience"
+	return "General audience"
+
+
 async def segmentation_node(state: CampaignState) -> CampaignState:
 	"""Segment customers using CustomerSegmentationAgent."""
 
@@ -459,10 +474,7 @@ async def segmentation_node(state: CampaignState) -> CampaignState:
 			if hasattr(agent, "segment_customers")
 			else {
 				"customers": current_state.get("customers", []),
-				"target_audience": parsed_data.get("target_audience", "General audience"),
-				"audience_who": parsed_data.get("audience_who", ""),
-				"audience_location": parsed_data.get("audience_location", ""),
-				"audience_filters": parsed_data.get("audience_filters", ""),
+				"target_audience": _target_audience_summary(parsed_data.get("target_audience", {})),
 				"campaign_goal": _safe_goal(parsed_data.get("campaign_goal")),
 			},
 		)
@@ -644,6 +656,7 @@ async def content_generation_node(state: CampaignState) -> CampaignState:
 				variant_type="ab_test",
 				personalization_tags=content.get("personalization_tags", []),
 				status=VariantStatus.DRAFT,
+				customer_ids=segment_payload.get("customer_ids", current_state.get("segments", {}).get(segment_name, [])),
 			)
 			variants.append(variant_doc.model_dump())
 

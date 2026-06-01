@@ -1,15 +1,18 @@
 """Campaign CRUD and workflow endpoints."""
 
+import logging
 from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel, Field
 
-from app.api.deps import CampaignRepoDep, PageDep, SegmentRepoDep, VariantRepoDep
+from app.api.deps import CampaignRepoDep, MetricsRepoDep, MockClientDep, PageDep, SegmentRepoDep, VariantRepoDep
 from app.models.campaign import Campaign, CampaignStatus
 from app.models.schemas import CampaignCreate, CampaignUpdate
 from app.schemas.common import PaginatedResponse, WorkflowStatusResponse
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/campaigns", tags=["campaigns"])
 
@@ -22,7 +25,7 @@ class ParseBriefRequest(BaseModel):
 
 class ParsedBriefSections(BaseModel):
     product_details: dict[str, str]
-    target_audience: dict[str, str]
+    target_audience: dict[str, Any]   # {"Group 1": {…}, "Group 2": {…}, …}
     campaign_goal: dict[str, str]
     campaign_preferences: dict[str, str]
 
@@ -79,17 +82,16 @@ async def parse_campaign_brief(body: ParseBriefRequest) -> ParsedBriefSections:
     # Prefer the full descriptive objective extracted from the brief
     objective = result.get("campaign_objective") or fallback_label
 
+    ta = result.get("target_audience") or {}
+    groups: dict = ta if isinstance(ta, dict) else {}
+
     return ParsedBriefSections(
         product_details={
             "product_name": result.get("product_name") or "",
             "product_description": result.get("product_description") or "",
             "cta_link": result.get("cta_link") or "",
         },
-        target_audience={
-            "who_to_target": result.get("audience_who") or result.get("target_audience") or "",
-            "location_preference": result.get("audience_location") or "",
-            "other_filters": result.get("audience_filters") or "",
-        },
+        target_audience=groups,
         campaign_goal={
             "objective": objective,
         },
@@ -254,6 +256,51 @@ async def start_campaign(
     )
 
 
+@router.post(
+    "/{campaign_id}/execute",
+    responses={**_404, **_400, **_500},
+    summary="Execute an approved campaign — schedule variants via Mock API",
+)
+async def execute_campaign(
+    campaign_id: str,
+    background_tasks: BackgroundTasks,
+    repo: CampaignRepoDep,
+) -> WorkflowStatusResponse:
+    """Run execution_node directly from saved workflow state. Call after approving a campaign."""
+    campaign = await repo.find_by_id(campaign_id)
+    if not campaign:
+        raise HTTPException(status_code=404, detail=_NOT_FOUND)
+    if campaign.status not in {CampaignStatus.APPROVED, CampaignStatus.PENDING_APPROVAL}:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Campaign must be approved before executing (current status: '{campaign.status.value}')",
+        )
+
+    async def _run(cid: str) -> None:
+        try:
+            from app.orchestration.campaign_graph import execution_node  # noqa: PLC0415
+            from app.orchestration.state import StateManager  # noqa: PLC0415
+
+            sm = StateManager()
+            try:
+                state = await sm.load_state(cid)
+            except ValueError:
+                logger.warning("No workflow state for campaign %s — cannot execute without variants", cid)
+                return
+            state["approval_status"] = "approved"
+            result_state = await execution_node(state)
+            await sm.save_state(result_state, cid)
+        except Exception as exc:
+            logger.error("Background execution failed for campaign %s: %s", cid, exc)
+
+    background_tasks.add_task(_run, campaign_id)
+    return WorkflowStatusResponse(
+        campaign_id=campaign_id,
+        status="executing",
+        message="Execution started — variants are being scheduled via Mock API",
+    )
+
+
 @router.get(
     "/{campaign_id}/workflow-status",
     responses=_404,
@@ -270,6 +317,56 @@ async def get_workflow_status(campaign_id: str, repo: CampaignRepoDep) -> dict[s
         "mock_campaign_id": campaign.mock_campaign_id,
         "updated_at": campaign.updated_at.isoformat() if campaign.updated_at else None,
     }
+
+
+@router.get(
+    "/{campaign_id}/metrics",
+    responses={**_404, **_500},
+    summary="Fetch latest metrics from Mock API for all campaign variants",
+)
+async def get_campaign_live_metrics(
+    campaign_id: str,
+    repo: CampaignRepoDep,
+    metrics_repo: MetricsRepoDep,
+    client: MockClientDep,
+) -> list[dict[str, Any]]:
+    """Pull fresh metrics from Mock API for every variant, upsert to MongoDB, and return all."""
+    campaign = await repo.find_by_id(campaign_id)
+    if not campaign:
+        raise HTTPException(status_code=404, detail=_NOT_FOUND)
+
+    try:
+        from app.orchestration.state import StateManager  # noqa: PLC0415
+        from app.models.metrics import Metrics  # noqa: PLC0415
+
+        state_manager = StateManager()
+        state = await state_manager.load_state(campaign_id)
+        mock_ids: dict[str, str] = dict(state.get("mock_api_campaign_ids") or {})
+    except ValueError:
+        mock_ids = {}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to load workflow state: {exc}") from exc
+
+    for variant_id, mock_campaign_id in mock_ids.items():
+        try:
+            data = client.get_campaign_metrics(mock_campaign_id)
+            metrics = Metrics(
+                variant_id=variant_id,
+                campaign_id=campaign_id,
+                mock_campaign_id=mock_campaign_id,
+                open_rate=float(data.get("open_rate", 0)),
+                click_rate=float(data.get("click_rate", 0)),
+                click_through_rate=float(data.get("click_through_rate", 0)),
+                total_sent=int(data.get("total_sent", 0)),
+                unique_opens=int(data.get("unique_opens", 0)),
+                unique_clicks=int(data.get("unique_clicks", 0)),
+            )
+            await metrics_repo.upsert(metrics)
+        except Exception:
+            pass  # skip failed variants; return whatever we have
+
+    items = await metrics_repo.find_by_campaign(campaign_id)
+    return [i.model_dump() for i in items]
 
 
 @router.get(

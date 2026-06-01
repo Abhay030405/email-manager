@@ -23,7 +23,7 @@ class ParsedData(BaseModel):
 
     product_name: str = ""
     product_description: str = ""
-    target_audience: str = ""
+    target_audience: Any = ""
     audience_who: str = ""
     audience_location: str = ""
     audience_filters: str = ""

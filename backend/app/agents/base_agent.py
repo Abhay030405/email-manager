@@ -10,11 +10,6 @@ from typing import Any, Optional
 from pydantic import BaseModel, ValidationError
 
 try:
-    from langchain_openai import ChatOpenAI
-except ImportError:  # pragma: no cover
-    from langchain.chat_models import ChatOpenAI  # type: ignore[no-redef]
-
-try:
     from langchain.memory import ConversationBufferMemory
 except ImportError:
     try:
@@ -36,12 +31,13 @@ from app.core.config import get_settings
 logger = logging.getLogger(__name__)
 
 
-class _OpenAIClient:
-    """Thin async wrapper around the OpenAI SDK.
+class _LLMClient:
+    """Thin async wrapper around the OpenAI SDK pointed at OpenRouter.
 
-    Tries the Responses API first (required for gpt-5-nano and o-series),
-    then falls back to Chat Completions (gpt-4, gpt-4o, gpt-3.5, etc.).
-    Exposes `.ainvoke(prompt)` so all agents can keep using `self.llm.ainvoke`.
+    OpenRouter exposes an OpenAI-compatible Chat Completions API, so we
+    configure `base_url` to route all calls through OpenRouter instead of
+    OpenAI directly. This lets any model available on OpenRouter (Gemini,
+    Claude, Mistral, etc.) be swapped in via the LLM_MODEL env variable.
     """
 
     def __init__(
@@ -50,29 +46,20 @@ class _OpenAIClient:
         temperature: float,
         max_tokens: int,
         api_key: str,
+        base_url: str,
         timeout: int,
     ) -> None:
         self._model = model
         self._temperature = temperature
         self._max_tokens = max_tokens
-        self._timeout = timeout
-        self._client = openai.AsyncOpenAI(api_key=api_key, timeout=timeout)
+        self._client = openai.AsyncOpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            timeout=timeout,
+        )
 
     async def ainvoke(self, prompt: str) -> Any:
-        """Call the model and return an object with a `.content` string attribute."""
-        # 1. Responses API — required for gpt-5 / o-series models
-        try:
-            resp = await self._client.responses.create(
-                model=self._model,
-                input=prompt,
-                max_output_tokens=self._max_tokens,
-            )
-            content = resp.output_text
-            return type("_Msg", (), {"content": content})()
-        except (AttributeError, openai.APIStatusError, openai.APIConnectionError):
-            pass
-
-        # 2. Chat Completions — gpt-4, gpt-4o, gpt-3.5, etc.
+        """Call the model via OpenRouter and return an object with a `.content` attribute."""
         resp = await self._client.chat.completions.create(
             model=self._model,
             messages=[{"role": "user", "content": prompt}],
@@ -87,7 +74,7 @@ class BaseAgent(ABC):
     """Abstract base class for all CampaignX AI agents.
 
     Provides:
-    - OpenAI GPT-4 LLM initialisation (reads OPENAI_API_KEY from settings)
+    - LLM initialisation via OpenRouter (reads OPENROUTER_API_KEY / LLM_MODEL from settings)
     - Conversation buffer memory
     - PromptTemplate factory
     - Exponential back-off retry wrapper (async-aware)
@@ -97,7 +84,7 @@ class BaseAgent(ABC):
     - Per-call timeout enforcement
     """
 
-    DEFAULT_MODEL: str = get_settings().OPENAI_MODEL
+    DEFAULT_MODEL: str = get_settings().LLM_MODEL
     DEFAULT_TEMPERATURE: float = 0.7
     DEFAULT_MAX_TOKENS: int = 2000
     DEFAULT_TIMEOUT: int = 30  # seconds
@@ -115,7 +102,7 @@ class BaseAgent(ABC):
         self.max_tokens = max_tokens
         self.timeout = timeout
         self._settings = get_settings()
-        self.llm: _OpenAIClient = self.setup_llm()
+        self.llm: _LLMClient = self.setup_llm()
         self.memory: ConversationBufferMemory = self.setup_memory()
         logger.info(
             "Agent '%s' initialised | model='%s' temperature=%.2f max_tokens=%d timeout=%ds",
@@ -128,19 +115,20 @@ class BaseAgent(ABC):
 
     # ── Setup ──────────────────────────────────────────────────────────────
 
-    def setup_llm(self) -> "_OpenAIClient":
-        """Initialise the OpenAI client from application settings."""
-        api_key = self._settings.OPENAI_API_KEY
+    def setup_llm(self) -> "_LLMClient":
+        """Initialise the OpenRouter LLM client from application settings."""
+        api_key = self._settings.OPENROUTER_API_KEY
         if not api_key:
             raise ValueError(
-                "OPENAI_API_KEY is not configured. "
+                "OPENROUTER_API_KEY is not configured. "
                 "Set the variable in your environment or .env file."
             )
-        return _OpenAIClient(
+        return _LLMClient(
             model=self.model_name,
             temperature=self.temperature,
             max_tokens=self.max_tokens,
             api_key=api_key,
+            base_url=self._settings.OPENROUTER_BASE_URL,
             timeout=self.timeout,
         )
 

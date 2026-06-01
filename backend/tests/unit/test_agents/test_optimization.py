@@ -8,8 +8,7 @@ from app.agents.optimization import OptimizationAgent
 
 
 def _make_agent() -> OptimizationAgent:
-    with patch("app.agents.base_agent.ChatOpenAI") as mock_llm_cls:
-        mock_llm_cls.return_value = MagicMock()
+    with patch("app.agents.base_agent.BaseAgent.setup_llm", return_value=MagicMock()):
         return OptimizationAgent()
 
 

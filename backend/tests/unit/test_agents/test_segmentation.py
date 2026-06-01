@@ -8,8 +8,7 @@ from app.agents.segmentation import CustomerSegmentationAgent
 
 
 def _make_agent() -> CustomerSegmentationAgent:
-    with patch("app.agents.base_agent.ChatOpenAI") as mock_llm_cls:
-        mock_llm_cls.return_value = MagicMock()
+    with patch("app.agents.base_agent.BaseAgent.setup_llm", return_value=MagicMock()):
         return CustomerSegmentationAgent()
 
 

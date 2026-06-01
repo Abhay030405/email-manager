@@ -56,7 +56,7 @@ import {
 } from "@/components/ui/table";
 import { useCampaigns } from "@/context/CampaignsContext";
 import { CampaignStatus, Segment, EmailVariant } from "@/data/campaignsData";
-import { getCampaignSegments, getCampaignVariants, getCampaignStrategy, ApiStrategy } from "@/lib/api";
+import { getCampaignSegments, getCampaignVariants, getCampaignStrategy, getCampaignLiveMetrics, executeApprovedCampaign, ApiStrategy, ApiMetrics } from "@/lib/api";
 import { fillPlaceholders, stripHtml } from "@/lib/emailUtils";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -94,6 +94,8 @@ const CampaignDetail = () => {
   const [segments, setSegments] = useState<Segment[]>([]);
   const [variants, setVariants] = useState<EmailVariant[]>([]);
   const [strategy, setStrategy] = useState<ApiStrategy | null>(null);
+  const [liveMetrics, setLiveMetrics] = useState<ApiMetrics[] | null>(null);
+  const [metricsLoading, setMetricsLoading] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -137,6 +139,14 @@ const CampaignDetail = () => {
     });
   }, [id]);
 
+  useEffect(() => {
+    if (view !== "metrics" || !id || liveMetrics !== null) return;
+    setMetricsLoading(true);
+    getCampaignLiveMetrics(id)
+      .then(setLiveMetrics)
+      .finally(() => setMetricsLoading(false));
+  }, [view, id, liveMetrics]);
+
   if (!campaign) {
     return (
       <div className="min-h-screen bg-background">
@@ -156,9 +166,40 @@ const CampaignDetail = () => {
   const isPending = campaign.status === "pending";
   const isApproved = campaign.status === "active" || campaign.status === "completed";
 
+  // ── Live metrics derived values ───────────────────────────────────────────
+  const VARIANT_LABELS = ["A", "B", "C", "D", "E", "F"];
+  const labelMap = Object.fromEntries(
+    variants.map((v) => [v.variantId, { label: v.variant, segment: v.segment }])
+  );
+  const metricRows = (liveMetrics ?? []).map((m, i) => ({
+    label: labelMap[m.variant_id]?.label ?? VARIANT_LABELS[i] ?? String(i + 1),
+    segment: labelMap[m.variant_id]?.segment ?? m.variant_id,
+    openRate: +(m.open_rate * 100).toFixed(1),
+    clickRate: +(m.click_rate * 100).toFixed(1),
+    totalSent: m.total_sent,
+    uniqueClicks: m.unique_clicks,
+  }));
+  const avgOpen = metricRows.length
+    ? +(metricRows.reduce((s, r) => s + r.openRate, 0) / metricRows.length).toFixed(1)
+    : 0;
+  const avgClick = metricRows.length
+    ? +(metricRows.reduce((s, r) => s + r.clickRate, 0) / metricRows.length).toFixed(1)
+    : 0;
+  const totalClicks = metricRows.reduce((s, r) => s + r.uniqueClicks, 0);
+  const perfChartData = metricRows.map((r) => ({ date: `Var. ${r.label}`, openRate: r.openRate, clickRate: r.clickRate }));
+  const [varA, varB] = metricRows;
+  const compChartData = varA && varB
+    ? [
+        { name: "Open Rate", variantA: varA.openRate, variantB: varB.openRate },
+        { name: "Click Rate", variantA: varA.clickRate, variantB: varB.clickRate },
+        { name: "Sent (÷100)", variantA: +(varA.totalSent / 100).toFixed(1), variantB: +(varB.totalSent / 100).toFixed(1) },
+      ]
+    : [];
+
   const handleApprove = () => {
     setStatus(campaign.id, "active");
-    toast({ title: "Campaign approved", description: `${campaign.name} is now approved.` });
+    if (id) executeApprovedCampaign(id);
+    toast({ title: "Campaign approved", description: `${campaign.name} is now approved and being scheduled.` });
   };
 
   const handleReject = () => {
@@ -471,88 +512,108 @@ const CampaignDetail = () => {
           </div>
         ) : (
           /* METRICS VIEW */
-          <div className="mt-6 space-y-6">
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <MetricKpi label="Open Rate" value={`${campaign.metrics.openRate.toFixed(1)}%`} change="+3.1%" positive />
-              <MetricKpi label="Click Rate" value={`${campaign.metrics.clickRate.toFixed(1)}%`} change="+2.4%" positive />
-              <MetricKpi label="Conversions" value={campaign.metrics.conversions.toLocaleString()} change="+12%" positive />
-              <MetricKpi label="ROI" value={campaign.metrics.roi} change="+8%" positive />
+          metricsLoading ? (
+            <div className="mt-6 flex items-center justify-center py-20">
+              <p className="text-sm text-muted-foreground">Loading metrics from Mock API…</p>
             </div>
-
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base font-semibold">Performance Over Time</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <ChartContainer config={lineConfig} className="h-[300px] w-full">
-                  <LineChart data={campaign.metrics.performance} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                    <XAxis dataKey="date" tick={{ fill: "hsl(215, 16%, 47%)" }} className="text-xs" />
-                    <YAxis tick={{ fill: "hsl(215, 16%, 47%)" }} className="text-xs" unit="%" />
-                    <ChartTooltip content={<ChartTooltipContent />} />
-                    <ChartLegend content={<ChartLegendContent />} />
-                    <Line type="monotone" dataKey="openRate" stroke="var(--color-openRate)" strokeWidth={2} dot={false} />
-                    <Line type="monotone" dataKey="clickRate" stroke="var(--color-clickRate)" strokeWidth={2} dot={false} />
-                  </LineChart>
-                </ChartContainer>
-              </CardContent>
-            </Card>
-
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base font-semibold">Segment Performance</CardTitle>
-                </CardHeader>
-                <CardContent className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Segment</TableHead>
-                        <TableHead>Recipients</TableHead>
-                        <TableHead>Open</TableHead>
-                        <TableHead>Click</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {campaign.metrics.segmentPerformance.map((s, i) => (
-                        <TableRow key={s.name} className={i % 2 ? "bg-secondary/40" : ""}>
-                          <TableCell className="font-medium">{s.name}</TableCell>
-                          <TableCell>{s.recipients.toLocaleString()}</TableCell>
-                          <TableCell>{s.openRate.toFixed(1)}%</TableCell>
-                          <TableCell>{s.clickRate.toFixed(1)}%</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
+          ) : !liveMetrics || liveMetrics.length === 0 ? (
+            <div className="mt-6 flex flex-col items-center justify-center py-20 space-y-3">
+              <p className="text-sm text-muted-foreground">No metrics available yet.</p>
+              <p className="text-xs text-muted-foreground">Execution may still be in progress — try refreshing in a few seconds.</p>
+              <Button
+                variant="outline"
+                onClick={() => { setLiveMetrics(null); }}
+              >
+                Refresh Metrics
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setView("overview")}>Back to Overview</Button>
+            </div>
+          ) : (
+            <div className="mt-6 space-y-6">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <MetricKpi label="Avg Open Rate" value={`${avgOpen}%`} change="" positive />
+                <MetricKpi label="Avg Click Rate" value={`${avgClick}%`} change="" positive />
+                <MetricKpi label="Total Clicks" value={totalClicks.toLocaleString()} change="" positive />
+                <MetricKpi label="Variants" value={String(metricRows.length)} change="" positive />
+              </div>
 
               <Card>
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-base font-semibold">Variant Comparison</CardTitle>
+                  <CardTitle className="text-base font-semibold">Performance by Variant</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <ChartContainer config={barConfig} className="h-[260px] w-full">
-                    <BarChart data={campaign.metrics.variantComparison} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
+                  <ChartContainer config={lineConfig} className="h-[300px] w-full">
+                    <LineChart data={perfChartData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                      <XAxis dataKey="name" tick={{ fill: "hsl(215, 16%, 47%)" }} />
-                      <YAxis tick={{ fill: "hsl(215, 16%, 47%)" }} />
+                      <XAxis dataKey="date" tick={{ fill: "hsl(215, 16%, 47%)" }} className="text-xs" />
+                      <YAxis tick={{ fill: "hsl(215, 16%, 47%)" }} className="text-xs" unit="%" />
                       <ChartTooltip content={<ChartTooltipContent />} />
                       <ChartLegend content={<ChartLegendContent />} />
-                      <Bar dataKey="variantA" fill="var(--color-variantA)" radius={[4, 4, 0, 0]} />
-                      <Bar dataKey="variantB" fill="var(--color-variantB)" radius={[4, 4, 0, 0]} />
-                    </BarChart>
+                      <Line type="monotone" dataKey="openRate" stroke="var(--color-openRate)" strokeWidth={2} dot />
+                      <Line type="monotone" dataKey="clickRate" stroke="var(--color-clickRate)" strokeWidth={2} dot />
+                    </LineChart>
                   </ChartContainer>
                 </CardContent>
               </Card>
-            </div>
 
-            <div className="flex justify-end">
-              <Button variant="outline" onClick={() => setView("overview")}>
-                Back to Overview
-              </Button>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base font-semibold">Variant Performance</CardTitle>
+                  </CardHeader>
+                  <CardContent className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Variant</TableHead>
+                          <TableHead>Segment</TableHead>
+                          <TableHead>Sent</TableHead>
+                          <TableHead>Open</TableHead>
+                          <TableHead>Click</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {metricRows.map((r, i) => (
+                          <TableRow key={r.label} className={i % 2 ? "bg-secondary/40" : ""}>
+                            <TableCell className="font-medium">{r.label}</TableCell>
+                            <TableCell className="text-muted-foreground">{r.segment}</TableCell>
+                            <TableCell>{r.totalSent.toLocaleString()}</TableCell>
+                            <TableCell>{r.openRate}%</TableCell>
+                            <TableCell>{r.clickRate}%</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </CardContent>
+                </Card>
+
+                {compChartData.length > 0 && (
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-base font-semibold">Variant A vs B</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <ChartContainer config={barConfig} className="h-[260px] w-full">
+                        <BarChart data={compChartData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                          <XAxis dataKey="name" tick={{ fill: "hsl(215, 16%, 47%)" }} />
+                          <YAxis tick={{ fill: "hsl(215, 16%, 47%)" }} />
+                          <ChartTooltip content={<ChartTooltipContent />} />
+                          <ChartLegend content={<ChartLegendContent />} />
+                          <Bar dataKey="variantA" fill="var(--color-variantA)" radius={[4, 4, 0, 0]} />
+                          <Bar dataKey="variantB" fill="var(--color-variantB)" radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      </ChartContainer>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+
+              <div className="flex justify-end">
+                <Button variant="outline" onClick={() => setView("overview")}>Back to Overview</Button>
+              </div>
             </div>
-          </div>
+          )
         )}
       </main>
 

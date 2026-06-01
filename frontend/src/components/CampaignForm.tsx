@@ -14,12 +14,74 @@ import { toast } from "@/hooks/use-toast";
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
+interface AudienceGroup {
+  min_age: number | null;
+  max_age: number | null;
+  Marital_Status: string | null;
+  Family_Size: number | null;
+  Dependent_count: number | null;
+  Occupation: string | null;
+  Occupation_type: string | null;
+  Monthly_Income: number | null;
+  KYC_status: string | null;
+  City: string | null;
+  Kids_in_Household: number | null;
+  App_Installed: string | null;
+  Existing_Customer: string | null;
+  Credit_score: number | null;
+  Social_Media_Active: string | null;
+}
+
 interface ParsedBriefSections {
   product_details: { product_name: string; product_description: string; cta_link: string };
-  target_audience: { who_to_target: string; location_preference: string; other_filters: string };
+  target_audience: Record<string, AudienceGroup>;
   campaign_goal: { objective: string };
   campaign_preferences: { email_tone: string; campaign_name: string; content_hints: string };
 }
+
+const GROUP_LABELS: Record<keyof AudienceGroup, string> = {
+  min_age: "Min Age",
+  max_age: "Max Age",
+  Marital_Status: "Marital Status",
+  Family_Size: "Family Size",
+  Dependent_count: "Dependents",
+  Occupation: "Occupation",
+  Occupation_type: "Occupation Type",
+  Monthly_Income: "Monthly Income",
+  KYC_status: "KYC",
+  City: "City",
+  Kids_in_Household: "Kids",
+  App_Installed: "App Installed",
+  Existing_Customer: "Existing Customer",
+  Credit_score: "Credit Score",
+  Social_Media_Active: "Social Media Active",
+};
+
+const AudienceGroupCard = ({ name, group }: { name: string; group: AudienceGroup }) => {
+  const fields = (Object.keys(GROUP_LABELS) as (keyof AudienceGroup)[]).filter(
+    (k) => group[k] !== null && group[k] !== undefined
+  );
+  return (
+    <div className="rounded-md border bg-muted/20 p-3 space-y-2">
+      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{name}</p>
+      {fields.length === 0 ? (
+        <p className="text-xs text-muted-foreground italic">No specific criteria extracted</p>
+      ) : (
+        <div className="flex flex-wrap gap-1.5">
+          {fields.map((k) => (
+            <span
+              key={k}
+              className="inline-flex items-center gap-1 rounded-full border bg-background px-2 py-0.5 text-xs"
+            >
+              <span className="text-muted-foreground">{GROUP_LABELS[k]}:</span>
+              <span className="font-medium">{String(group[k])}</span>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 const STEPS = ["Product Details", "Target Audience", "Campaign Goal", "Campaign Preferences"];
 
@@ -107,9 +169,7 @@ const CampaignForm = () => {
   const [ctaLink, setCtaLink] = useState("");
 
   // Step 1 — Target Audience
-  const [whoToTarget, setWhoToTarget] = useState("");
-  const [locationPreference, setLocationPreference] = useState("");
-  const [otherFilters, setOtherFilters] = useState("");
+  const [audienceGroups, setAudienceGroups] = useState<Record<string, AudienceGroup>>({});
 
   // Step 2 — Campaign Goal
   const [campaignGoal, setCampaignGoal] = useState("");
@@ -163,9 +223,7 @@ const CampaignForm = () => {
       setProductDescription(data.product_details.product_description);
       setCtaLink(data.product_details.cta_link);
 
-      setWhoToTarget(data.target_audience.who_to_target);
-      setLocationPreference(data.target_audience.location_preference);
-      setOtherFilters(data.target_audience.other_filters);
+      setAudienceGroups(data.target_audience);
 
       setCampaignGoal(data.campaign_goal.objective);
 
@@ -187,7 +245,7 @@ const CampaignForm = () => {
   const isCurrentStepValid = (): boolean => {
     switch (step) {
       case 0: return !!(productName.trim() && productDescription.trim() && ctaLink.trim());
-      case 1: return !!(whoToTarget.trim() && locationPreference.trim() && otherFilters.trim());
+      case 1: return Object.keys(audienceGroups).length > 0;
       case 2: return !!campaignGoal.trim();
       case 3: return true;
       default: return false;
@@ -210,10 +268,7 @@ const CampaignForm = () => {
             product_name: productName.trim(),
             product_description: productDescription.trim(),
             cta_link: ctaLink.trim(),
-            target_audience: whoToTarget.trim(),
-            audience_who: whoToTarget.trim(),
-            audience_location: locationPreference.trim(),
-            audience_filters: otherFilters.trim(),
+            target_audience: audienceGroups,
             campaign_objective: campaignGoal.trim(),
             campaign_name: campaignName.trim(),
             preferred_tone: toneMap[emailTone] ?? "",
@@ -268,9 +323,13 @@ const CampaignForm = () => {
           </ReviewSection>
 
           <ReviewSection title="Target Audience">
-            <ReviewRow label="Who to target" value={whoToTarget} />
-            <ReviewRow label="Location preference" value={locationPreference} />
-            <ReviewRow label="Other filters" value={otherFilters} />
+            {Object.keys(audienceGroups).length === 0 ? (
+              <p className="text-sm text-muted-foreground italic">No audience groups.</p>
+            ) : (
+              Object.entries(audienceGroups).map(([name, group]) => (
+                <AudienceGroupCard key={name} name={name} group={group} />
+              ))
+            )}
           </ReviewSection>
 
           <ReviewSection title="Campaign Goal">
@@ -445,29 +504,21 @@ const CampaignForm = () => {
         )}
 
         {step === 1 && (
-          <>
-            <Field label="Who to target" hint='e.g. "Working professionals aged 25–45"'>
-              <Input
-                placeholder="Describe your target audience"
-                value={whoToTarget}
-                onChange={(e) => setWhoToTarget(e.target.value)}
-              />
-            </Field>
-            <Field label="Location preference" hint='"Metro cities" or "Delhi, Mumbai, Bangalore"'>
-              <Input
-                placeholder="e.g. Metro cities"
-                value={locationPreference}
-                onChange={(e) => setLocationPreference(e.target.value)}
-              />
-            </Field>
-            <Field label="Any other filters" hint='"High income", "App installed users", "Existing customers only"'>
-              <Input
-                placeholder="e.g. High income, App installed users"
-                value={otherFilters}
-                onChange={(e) => setOtherFilters(e.target.value)}
-              />
-            </Field>
-          </>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label className="text-sm font-medium text-foreground">Target Audience</Label>
+              <p className="text-xs text-muted-foreground">
+                Extracted from your campaign brief. Go back to edit the brief if adjustments are needed.
+              </p>
+            </div>
+            {Object.keys(audienceGroups).length === 0 ? (
+              <p className="text-sm text-muted-foreground italic">No audience groups extracted.</p>
+            ) : (
+              Object.entries(audienceGroups).map(([name, group]) => (
+                <AudienceGroupCard key={name} name={name} group={group} />
+              ))
+            )}
+          </div>
         )}
 
         {step === 2 && (
