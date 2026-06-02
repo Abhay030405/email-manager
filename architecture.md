@@ -34,7 +34,7 @@ The orchestration layer is built on **LangGraph** (state-machine graph), with ea
 
 ### 1. `CampaignBriefParserAgent`
 **File:** `backend/app/agents/brief_parser.py`  
-**Purpose:** Converts a raw natural-language marketing brief into a fully structured, validated data object.
+**Purpose:** Converts a raw natural-language marketing brief into a fully structured, validated data object, including multi-group audience segmentation criteria.
 
 #### Input
 
@@ -47,48 +47,100 @@ Schema: `BriefInput`
 **Example input:**
 ```json
 {
-  "brief_text": "Launch XDeposit for salaried professionals aged 25–45 in metro cities. Monthly income > ₹50k, app installed. Goal: drive sign-ups at https://example.com/xdeposit. Budget ₹3,00,000."
+  "brief_text": "Launch XDeposit for salaried professionals aged 25–45 in metro cities. Monthly income > ₹50k, app installed. Goal: drive sign-ups at https://example.com/xdeposit."
 }
 ```
 
-#### Output
+#### API Response
 
-Schema: `ParsedBrief`
+The `/api/v1/campaigns/parse-brief` endpoint wraps the agent output into `ParsedBriefSections` — a nested structure that maps directly to the 4-step confirmation wizard and to the `parsed_data` field stored in MongoDB.
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `product_name` | `str` | — | Name of the product/service being promoted |
-| `product_description` | `str` | `"Not specified"` | Short description of the product |
-| `target_audience` | `str` | — | Full synthesised audience summary |
-| `audience_who` | `str` | `""` | Demographics, job type, age range, behaviour |
-| `audience_location` | `str` | `""` | City/region/tier preferences |
-| `audience_filters` | `str` | `""` | Numeric or flag-based filters (income, credit score, KYC, app installed) |
-| `campaign_goal` | `str` | — | One of: `awareness \| conversion \| retention \| engagement` |
-| `campaign_objective` | `str` | `""` | Full descriptive sentence combining primary goal + success metrics |
-| `campaign_name` | `str` | `""` | Auto-generated 15–20 character label (e.g. `"XDeposit Metro Push"`) |
-| `cta_link` | `str` | `""` | Valid URL or empty string |
-| `budget` | `float \| null` | `null` | Numeric budget (handles `"$5k"` → `5000.0`) |
-| `preferred_tone` | `str` | `"professional"` | One of: `professional \| casual \| friendly \| urgent` |
-| `key_messages` | `list[str]` | `[]` | 3–5 key selling points |
-| `constraints` | `str \| null` | `null` | Compliance notes, timing restrictions |
+**Top-level sections:**
+
+| Section | Type | Description |
+|---------|------|-------------|
+| `product_details` | `object` | Product name, description, CTA link |
+| `target_audience` | `dict[GroupName, AudienceGroup]` | One entry per audience group extracted from the brief |
+| `campaign_goal` | `object` | Full descriptive campaign objective |
+| `campaign_preferences` | `object` | Tone, campaign name, content hints |
+
+**`product_details`**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `product_name` | `str` | Name of the product/service |
+| `product_description` | `str` | Short product description |
+| `cta_link` | `str` | Call-to-action URL |
+
+**`target_audience`** — keyed by group label (e.g. `"Group 1"`, `"Group 2"`, …)
+
+Each group is an `AudienceGroup` object that maps directly to Customer DB fields:
+
+| Field | Type | Customer DB field |
+|-------|------|-------------------|
+| `min_age` | `int \| null` | `Age ≥` |
+| `max_age` | `int \| null` | `Age ≤` |
+| `Marital_Status` | `str \| null` | `Marital_Status` |
+| `Family_Size` | `int \| null` | `Family_Size` |
+| `Dependent_count` | `int \| null` | `Dependent_count` |
+| `Occupation` | `str \| null` | `Occupation` |
+| `Occupation_type` | `str \| null` | `Occupation_type` |
+| `Monthly_Income` | `int \| null` | `Monthly_Income ≥` |
+| `KYC_status` | `str \| null` | `KYC_status` |
+| `City` | `str \| null` | `City` (comma-separated list) |
+| `Kids_in_Household` | `int \| null` | `Kids_in_Household` |
+| `App_Installed` | `str \| null` | `App_Installed` |
+| `Existing_Customer` | `str \| null` | `Existing_Customer` |
+| `Credit_score` | `int \| null` | `Credit_score ≥` |
+| `Social_Media_Active` | `str \| null` | `Social_Media_Active` |
+
+`null` means no filter applied for that field.
+
+**`campaign_goal`**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `objective` | `str` | Full descriptive objective including success metrics |
+
+**`campaign_preferences`**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `email_tone` | `str` | One of: `Formal \| Friendly \| Urgent` |
+| `campaign_name` | `str` | Auto-generated campaign label |
+| `content_hints` | `str` | Key messages, timing rules, personalisation instructions |
 
 **Example output:**
 ```json
 {
-  "product_name": "XDeposit",
-  "product_description": "Investment deposit product offering higher returns",
-  "target_audience": "Salaried professionals aged 25–45 in metro cities with income > ₹50k and app installed",
-  "audience_who": "Salaried professionals aged 25–45",
-  "audience_location": "Metro cities",
-  "audience_filters": "Monthly Income > ₹50,000, App Installed = Yes",
-  "campaign_goal": "conversion",
-  "campaign_objective": "Drive sign-ups for XDeposit among high-income salaried professionals.",
-  "campaign_name": "XDeposit Metro Push",
-  "cta_link": "https://example.com/xdeposit",
-  "budget": 300000.0,
-  "preferred_tone": "professional",
-  "key_messages": ["Higher returns", "Safe investment", "Easy sign-up in minutes"],
-  "constraints": null
+  "product_details": {
+    "product_name": "XDeposit Smart Savings Plan",
+    "product_description": "A premium investment product offering guaranteed returns of 8.5% per annum with complete capital protection and zero market risk.",
+    "cta_link": "https://superbfsi.com/xdeposit/explore/"
+  },
+  "target_audience": {
+    "Group 1": {
+      "min_age": 25, "max_age": 35,
+      "Occupation_type": "Full-time", "Monthly_Income": 40000,
+      "KYC_status": "Y", "App_Installed": "Y", "Social_Media_Active": "Y",
+      "City": "Mumbai, Delhi, Bengaluru, Chennai, Hyderabad, Kolkata, Pune",
+      "Marital_Status": null, "Existing_Customer": null, "Credit_score": null
+    },
+    "Group 2": {
+      "min_age": 35, "max_age": 55,
+      "Marital_Status": "Married", "Occupation_type": "Full-time", "Monthly_Income": 80000,
+      "KYC_status": "Y", "App_Installed": "Y", "Existing_Customer": "N",
+      "City": "Mumbai, Delhi, Bengaluru, Chennai, Hyderabad, Kolkata, Pune"
+    }
+  },
+  "campaign_goal": {
+    "objective": "Generate completed applications for XDeposit from four distinct customer segments, aiming for open rate > 40% and click rate > 14%."
+  },
+  "campaign_preferences": {
+    "email_tone": "Friendly",
+    "campaign_name": "XDeposit_FourSeg_June2026",
+    "content_hints": "Guaranteed 8.5% returns per annum. Emails scheduled Tuesday/Wednesday 8–10 AM IST. Messaging distinct per segment."
+  }
 }
 ```
 
@@ -96,9 +148,9 @@ Schema: `ParsedBrief`
 1. LLM temperature `0.1` — deterministic, factual extraction
 2. Max tokens `2048` (supports long briefs up to ~15k chars)
 3. `_retry_with_backoff` — up to 3 attempts (1s → 2s → 4s)
-4. **Post-processing:** budget normalisation (`"$5k"` → `5000.0`), CTA sentinel removal, key_messages list coercion
-5. **Synthesis:** if `target_audience` is blank, assembles it from `audience_who + location + filters`
-6. **Validation:** `product_name` is hard-required (raises); `target_audience` falls back to `"General audience"` rather than failing
+4. **Post-processing:** CTA sentinel removal, key_messages coercion, tone normalisation
+5. **Multi-group extraction:** LLM identifies distinct audience groups and maps each to the 15-field `AudienceGroup` schema; `null` = no filter for that field
+6. **Validation:** `product_name` is hard-required (raises `ValueError`); missing audience groups fall back to `"General audience"`
 
 ---
 
@@ -187,11 +239,8 @@ Schema: `SegmentationInput`
 | Field | Type | Constraints | Description |
 |-------|------|-------------|-------------|
 | `customers` | `list[Customer]` | non-empty | Full customer list (unfiltered) from Mock API or MongoDB |
-| `target_audience` | `str` | `min_length=1` | Combined audience summary from parsed brief |
-| `audience_who` | `str` | `""` | Demographics, job type, age range |
-| `audience_location` | `str` | `""` | City/region mentions |
-| `audience_filters` | `str` | `""` | Numeric/flag filters: income, credit score, app, KYC etc. |
-| `campaign_goal` | `str` | one of allowed | `awareness \| conversion \| retention \| engagement` |
+| `target_audience` | `dict[str, AudienceGroup]` | non-empty | Group-keyed audience criteria extracted by the parser agent (e.g. `{"Group 1": {...}, "Group 2": {...}}`) |
+| `campaign_goal` | `str` | one of allowed | `awareness \| conversion \| retention \| engagement` (resolved from `parsed_data.campaign_goal.objective` via `_safe_goal()`) |
 
 ---
 
@@ -649,7 +698,7 @@ START
 |-------|------|-------------|
 | `campaign_id` | `str` | Initial state |
 | `campaign_brief` | `str` | Initial state |
-| `parsed_data` | `dict` | `parse_brief` node |
+| `parsed_data` | `dict` | Pre-populated from user-confirmed form (`POST /campaigns`); merged with LLM re-extraction in `parse_brief` node — user values win |
 | `customers` | `list[dict]` | `fetch_customers` node |
 | `customer_count` | `int` | `fetch_customers` node |
 | `segments` | `dict[str, list[str]]` | `segmentation` node |
@@ -757,7 +806,15 @@ START
 ### What lives where
 
 ```
-campaigns.parsed_data     ← rich 14-field dict (BriefParser output)
+campaigns.parsed_data     ← nested 4-section dict matching parser API output:
+                             {
+                               product_details:      { product_name, product_description, cta_link }
+                               target_audience:      { "Group 1": {...}, "Group 2": {...}, ... }
+                               campaign_goal:        { objective }
+                               campaign_preferences: { email_tone, campaign_name, content_hints }
+                             }
+                             User-confirmed values (from wizard) are stored here and
+                             win over LLM re-extraction when the workflow runs.
 campaigns.segments        ← list[str] of segment names only
 segments collection       ← full Segment docs with customer_ids, criteria, size
 campaign_variants         ← EmailContent output, one doc per variant per segment
@@ -771,8 +828,8 @@ campaign_variants         ← EmailContent output, one doc per variant per segme
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                           USER / FRONTEND                                   │
 │                                                                             │
-│  POST /campaigns           POST /campaigns/{id}/run-workflow                │
-│  (brief + parsed_data)     (triggers LangGraph)                             │
+│  POST /campaigns/parse-brief   POST /campaigns        POST /{id}/run-workflow│
+│  (brief → wizard pre-fill)     (brief + parsed_data)  (triggers LangGraph)  │
 └────────────────┬───────────────────────────────────┬────────────────────────┘
                  │                                   │
                  ▼                                   ▼
@@ -843,37 +900,47 @@ campaign_variants         ← EmailContent output, one doc per variant per segme
 ### Data Flow Summary
 
 ```
-User brief (text)
+User provides raw brief (text / .txt upload)
     │
-    ▼  BriefParserAgent
-Structured ParsedBrief (14 fields)
+    ▼  POST /campaigns/parse-brief  →  CampaignBriefParserAgent
+ParsedBriefSections {
+  product_details, target_audience (per-group criteria), campaign_goal, campaign_preferences
+}
     │
+    ▼  Frontend 4-step wizard — user reviews and edits each section
+User-confirmed ParsedBriefSections
     │
-    │  + All customers from Mock API (5000 records) or MongoDB cache
-    ▼  SegmentationAgent — Phase 1: Criteria Extraction (LLM)
-AudienceCriteria {age_min, age_max, cities, occupation_types, min_income, app_installed, ...}
+    ▼  POST /campaigns  (campaign_brief + parsed_data)
+Campaign document created in MongoDB (status = draft)
+No created_by field — campaigns are system-owned.
     │
-    ▼  SegmentationAgent — Phase 2: Hard Filter (Python, AND logic)
-Qualified candidate pool (e.g. 1,247 of 5,000 pass all criteria)
+    ▼  POST /campaigns/{id}/run-workflow  →  LangGraph
     │
-    ▼  SegmentationAgent — Phase 3: Sub-Segmentation (LLM)
-Segments (3–7 named groups within the qualified pool, each with customer_ids, priority, approach)
+    ▼  parse_brief node — CampaignBriefParserAgent (re-runs on brief)
+      Merges LLM output with user-confirmed parsed_data (user values win)
     │
-    ▼  StrategyAgent
-Campaign strategy (which segments, when to send, how to A/B test, budget split)
+    │  + All customers from Mock API (5,000 records) or MongoDB cache
+    ▼  segmentation node — CustomerSegmentationAgent
+      Phase 1: Reads target_audience groups (AudienceGroup dicts) → filter criteria
+      Phase 2: Hard filter (Python, AND logic) → qualified candidate pool
+      Phase 3: Sub-segmentation (LLM) → named segments with customer_ids, priority
     │
-    ▼  ContentGenerationAgent (× num_variants)
-Email variants (HTML body, subject options, personalisation tokens)
+    ▼  strategy node — CampaignStrategyAgent
+      campaign_goal.objective resolved to enum via _safe_goal()
+      Produces: selected segments, send schedule, A/B plan, budget split
     │
-    ▼  ApprovalAgent (reads MongoDB → human sets status via API)
-approval_status: pending → [human approves] → approved
+    ▼  content_generation node — ContentGenerationAgent (× num_segments)
+      Email variants: HTML body, subject lines, personalisation tokens
     │
-    ▼  ExecutionAgent
-Schedules via Mock API → mock_campaign_id per variant
+    ▼  approval node — ApprovalAgent
+      approval_status: pending → [human sets via API] → approved
+    │
+    ▼  execution node — ExecutionAgent
+      Schedules via Mock API → mock_campaign_id per variant
     │
     ▼  MonitoringAgent
-open_rate, click_rate, per-customer outcomes
+      open_rate, click_rate, per-customer outcomes
     │
     ▼  OptimizationAgent (feedback loop, max 3 iterations)
-Recommendations → regenerated variants → re-scheduled → converge
+      Recommendations → regenerated variants → re-scheduled → converge
 ```

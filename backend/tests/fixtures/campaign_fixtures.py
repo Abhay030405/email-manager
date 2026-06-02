@@ -23,26 +23,26 @@ def sample_campaign_create_payload() -> dict:
             "Promote XDeposit savings account to young professionals (25-35) "
             "with personalized recommendations for higher returns."
         ),
-        "created_by": "test_user",
     }
 
 
 @pytest.fixture
 def sample_parsed_data() -> dict:
     return {
-        "product_name": "XDeposit",
-        "product_description": "High-yield savings account with flexible terms",
-        "target_audience": "Young professionals aged 25-35",
-        "campaign_goal": "conversion",
-        "cta_link": "https://example.com/xdeposit",
-        "budget": 50000.0,
-        "preferred_tone": "professional",
-        "key_messages": [
-            "1% higher returns than market average",
-            "Flexible withdrawal terms",
-            "No minimum balance required",
-        ],
-        "constraints": None,
+        "product_details": {
+            "product_name": "XDeposit",
+            "product_description": "High-yield savings account with flexible terms",
+            "cta_link": "https://example.com/xdeposit",
+        },
+        "target_audience": {
+            "Group 1": {"min_age": 25, "max_age": 35, "Occupation": "Professional"},
+        },
+        "campaign_goal": {"objective": "Drive sign-ups / conversions"},
+        "campaign_preferences": {
+            "email_tone": "Friendly",
+            "campaign_name": "XDeposit Launch",
+            "content_hints": "1% higher returns than market average",
+        },
     }
 
 
@@ -52,14 +52,11 @@ def sample_campaign() -> Campaign:
         campaign_id="camp-test-001",
         campaign_brief="Promote XDeposit to young professionals",
         parsed_data=ParsedData(
-            product_name="XDeposit",
-            target_audience="Young professionals aged 25-35",
-            campaign_goal="conversion",
-            cta_link="https://example.com/xdeposit",
-            budget=50000.0,
+            product_details={"product_name": "XDeposit", "product_description": "High-yield savings account", "cta_link": "https://example.com/xdeposit"},
+            target_audience={"Group 1": {"min_age": 25, "max_age": 35, "Occupation": "Professional"}},
+            campaign_goal={"objective": "Drive sign-ups / conversions"},
         ),
         status=CampaignStatus.DRAFT,
-        created_by="test_user",
     )
 
 
@@ -76,9 +73,11 @@ def sample_campaigns() -> list[Campaign]:
         Campaign(
             campaign_id=f"camp-test-{i:03d}",
             campaign_brief=f"Campaign brief {i}",
-            parsed_data=ParsedData(product_name=f"Product {i}", campaign_goal="awareness"),
+            parsed_data=ParsedData(
+                product_details={"product_name": f"Product {i}", "product_description": "", "cta_link": ""},
+                campaign_goal={"objective": "awareness"},
+            ),
             status=status,
-            created_by="test_user",
         )
         for i, status in enumerate(statuses, 1)
     ]

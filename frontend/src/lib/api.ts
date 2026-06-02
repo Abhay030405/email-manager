@@ -2,21 +2,29 @@ const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
 // ── Backend shapes ─────────────────────────────────────────────────────────
 
+export interface ApiAudienceGroup {
+  min_age: number | null;
+  max_age: number | null;
+  Marital_Status: string | null;
+  Family_Size: number | null;
+  Dependent_count: number | null;
+  Occupation: string | null;
+  Occupation_type: string | null;
+  Monthly_Income: number | null;
+  KYC_status: string | null;
+  City: string | null;
+  Kids_in_Household: number | null;
+  App_Installed: string | null;
+  Existing_Customer: string | null;
+  Credit_score: number | null;
+  Social_Media_Active: string | null;
+}
+
 export interface ApiParsedData {
-  product_name: string;
-  product_description: string;
-  target_audience: Record<string, unknown> | string;
-  audience_who: string;
-  audience_location: string;
-  audience_filters: string;
-  campaign_goal: string;
-  campaign_objective: string;
-  campaign_name: string;
-  cta_link: string;
-  budget: number | null;
-  preferred_tone: string;
-  key_messages: string[];
-  constraints: string | null;
+  product_details: { product_name: string; product_description: string; cta_link: string };
+  target_audience: Record<string, ApiAudienceGroup>;
+  campaign_goal: { objective: string };
+  campaign_preferences: { email_tone: string; campaign_name: string; content_hints: string };
 }
 
 export interface ApiCampaign {

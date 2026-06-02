@@ -255,23 +255,27 @@ const CampaignForm = () => {
   const handleGenerate = async () => {
     setIsGenerating(true);
     try {
-      const toneMap: Record<string, string> = { Formal: "professional", Friendly: "friendly", Urgent: "urgent" };
-
-      // 1. Create campaign in DB — include form-confirmed values as parsed_data
+      // 1. Create campaign in DB with confirmed parsed data
       const createRes = await fetch(`${API_BASE}/api/v1/campaigns`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           campaign_brief: brief.trim(),
-          created_by: "user",
           parsed_data: {
-            product_name: productName.trim(),
-            product_description: productDescription.trim(),
-            cta_link: ctaLink.trim(),
+            product_details: {
+              product_name: productName.trim(),
+              product_description: productDescription.trim(),
+              cta_link: ctaLink.trim(),
+            },
             target_audience: audienceGroups,
-            campaign_objective: campaignGoal.trim(),
-            campaign_name: campaignName.trim(),
-            preferred_tone: toneMap[emailTone] ?? "",
+            campaign_goal: {
+              objective: campaignGoal.trim(),
+            },
+            campaign_preferences: {
+              email_tone: emailTone,
+              campaign_name: campaignName.trim(),
+              content_hints: contentHints.trim(),
+            },
           },
         }),
       });

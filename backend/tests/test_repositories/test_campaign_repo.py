@@ -175,14 +175,11 @@ def test_campaign_brief_trimmed():
     assert c.campaign_brief == "spaced brief"
 
 
-def test_parsed_data_negative_budget_rejected():
-    with pytest.raises(ValueError):
-        ParsedData(budget=-100)
-
-
-def test_parsed_data_budget_rounded():
-    pd = ParsedData(budget=99.999)
-    assert pd.budget == 100.0
+def test_parsed_data_defaults():
+    pd = ParsedData()
+    assert pd.product_details.product_name == ""
+    assert pd.campaign_goal.objective == ""
+    assert pd.target_audience == {}
 
 
 def test_campaign_auto_uuid():

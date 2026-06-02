@@ -37,12 +37,11 @@ async def seeded_campaign(repos):
         campaign_id="camp-int-001",
         campaign_brief="Promote XDeposit to young professionals",
         parsed_data=ParsedData(
-            product_name="XDeposit",
-            target_audience="Young professionals",
-            campaign_goal="conversion",
+            product_details={"product_name": "XDeposit", "product_description": "", "cta_link": ""},
+            target_audience={"Group 1": {"min_age": 25, "max_age": 35}},
+            campaign_goal={"objective": "conversion"},
         ),
         status=CampaignStatus.DRAFT,
-        created_by="integration_tester",
     )
     return await repos["campaign"].create(campaign)
 
@@ -55,9 +54,11 @@ class TestCampaignWorkflowIntegration:
         campaign = Campaign(
             campaign_id="camp-wf-001",
             campaign_brief="Test integration campaign",
-            parsed_data=ParsedData(product_name="TestProduct", campaign_goal="awareness"),
+            parsed_data=ParsedData(
+                product_details={"product_name": "TestProduct", "product_description": "", "cta_link": ""},
+                campaign_goal={"objective": "awareness"},
+            ),
             status=CampaignStatus.DRAFT,
-            created_by="tester",
         )
 
         created = await repos["campaign"].create(campaign)

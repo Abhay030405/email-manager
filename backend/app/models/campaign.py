@@ -18,30 +18,29 @@ class CampaignStatus(str, Enum):
     OPTIMIZING = "optimizing"
 
 
-class ParsedData(BaseModel):
-    """Structured data parsed from the campaign brief."""
-
+class ProductDetails(BaseModel):
     product_name: str = ""
     product_description: str = ""
-    target_audience: Any = ""
-    audience_who: str = ""
-    audience_location: str = ""
-    audience_filters: str = ""
-    campaign_goal: str = ""
-    campaign_objective: str = ""
-    campaign_name: str = ""
     cta_link: str = ""
-    budget: Optional[float] = Field(None, ge=0)
-    preferred_tone: str = "professional"
-    key_messages: list[str] = Field(default_factory=list)
-    constraints: Optional[str] = None
 
-    @field_validator("budget")
-    @classmethod
-    def validate_budget(cls, v: Optional[float]) -> Optional[float]:
-        if v is not None and v < 0:
-            raise ValueError("Budget must be a positive number")
-        return round(v, 2) if v is not None else v
+
+class CampaignGoalData(BaseModel):
+    objective: str = ""
+
+
+class CampaignPreferences(BaseModel):
+    email_tone: str = ""
+    campaign_name: str = ""
+    content_hints: str = ""
+
+
+class ParsedData(BaseModel):
+    """Structured data parsed from the campaign brief — matches parser agent output."""
+
+    product_details: ProductDetails = Field(default_factory=ProductDetails)
+    target_audience: dict[str, Any] = Field(default_factory=dict)
+    campaign_goal: CampaignGoalData = Field(default_factory=CampaignGoalData)
+    campaign_preferences: CampaignPreferences = Field(default_factory=CampaignPreferences)
 
 
 class Campaign(BaseModel):
@@ -60,7 +59,6 @@ class Campaign(BaseModel):
     parsed_data: ParsedData = Field(default_factory=ParsedData)
     status: CampaignStatus = CampaignStatus.DRAFT
     segments: list[str] = Field(default_factory=list)
-    created_by: str = ""
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     approved_at: Optional[datetime] = None

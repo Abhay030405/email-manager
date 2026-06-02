@@ -21,11 +21,10 @@ def _make_campaign(campaign_id: str = "camp-001", **kwargs) -> Campaign:
         campaign_id=campaign_id,
         campaign_brief=kwargs.get("campaign_brief", "Test campaign brief"),
         parsed_data=ParsedData(
-            product_name=kwargs.get("product_name", "TestProduct"),
-            campaign_goal=kwargs.get("campaign_goal", "awareness"),
+            product_details={"product_name": kwargs.get("product_name", "TestProduct"), "product_description": "", "cta_link": ""},
+            campaign_goal={"objective": kwargs.get("campaign_goal", "awareness")},
         ),
         status=kwargs.get("status", CampaignStatus.DRAFT),
-        created_by="tester",
     )
 
 

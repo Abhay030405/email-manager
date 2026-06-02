@@ -38,7 +38,6 @@ class CampaignCreateRequest(BaseModel):
         max_length=5000,
         description="Natural language campaign brief — at least 50 characters",
     )
-    created_by: str = Field("", description="Username or team identifier")
 
     model_config = {
         "json_schema_extra": {
@@ -49,7 +48,6 @@ class CampaignCreateRequest(BaseModel):
                         "active adults aged 20-40 in Mumbai and Delhi with a budget "
                         "of INR 5,00,000 and a CTA link to our product page."
                     ),
-                    "created_by": "marketing_team",
                 }
             ]
         }
@@ -76,7 +74,6 @@ class CampaignDetailResponse(BaseModel):
     parsed_data: ParsedData
     status: CampaignStatus
     segments: list[str]
-    created_by: str
     mock_campaign_id: Optional[str] = None
     scheduled_time: Optional[datetime] = None
     created_at: datetime

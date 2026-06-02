@@ -12,7 +12,10 @@ class TestCampaignModel:
         c = Campaign(
             campaign_id="camp-001",
             campaign_brief="Test brief",
-            parsed_data=ParsedData(product_name="TestProduct", campaign_goal="awareness"),
+            parsed_data=ParsedData(
+                product_details={"product_name": "TestProduct", "product_description": "", "cta_link": ""},
+                campaign_goal={"objective": "awareness"},
+            ),
         )
         assert c.campaign_id == "camp-001"
         assert c.status == CampaignStatus.DRAFT
@@ -29,32 +32,31 @@ class TestCampaignModel:
         assert CampaignStatus.REJECTED == "rejected"
 
     def test_parsed_data_defaults(self):
-        pd = ParsedData(product_name="MyProduct")
-        assert pd.product_name == "MyProduct"
-        # campaign_goal defaults to empty string
-        assert pd.campaign_goal == "" or pd.campaign_goal is not None
-        assert pd.cta_link == "" or pd.cta_link is None
+        pd = ParsedData()
+        assert pd.product_details.product_name == ""
+        assert pd.campaign_goal.objective == ""
+        assert pd.target_audience == {}
 
     def test_campaign_model_dump(self):
         c = Campaign(
             campaign_id="camp-002",
             campaign_brief="Brief",
-            parsed_data=ParsedData(product_name="P", campaign_goal="conversion"),
+            parsed_data=ParsedData(
+                product_details={"product_name": "P", "product_description": "", "cta_link": ""},
+                campaign_goal={"objective": "conversion"},
+            ),
         )
         d = c.model_dump()
         assert d["campaign_id"] == "camp-002"
         assert d["status"] == "draft"
         assert "parsed_data" in d
+        assert d["parsed_data"]["product_details"]["product_name"] == "P"
 
     def test_campaign_brief_required(self):
         with pytest.raises(Exception):
-            Campaign(campaign_id="x", parsed_data=ParsedData(product_name="P"))
+            Campaign(campaign_id="x")
 
     def test_campaign_id_auto_generated_when_omitted(self):
-        c = Campaign(
-            campaign_brief="brief",
-            parsed_data=ParsedData(product_name="P"),
-        )
-        # campaign_id has a default_factory — should be auto-generated UUID
+        c = Campaign(campaign_brief="brief")
         assert c.campaign_id is not None
         assert len(c.campaign_id) > 0

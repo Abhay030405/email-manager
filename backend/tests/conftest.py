@@ -106,13 +106,11 @@ def sample_campaign() -> Campaign:
         campaign_id="camp-001",
         campaign_brief="Launch Diwali sale for premium electronics targeting urban males",
         parsed_data=ParsedData(
-            product_name="Premium Electronics Diwali Offer",
-            target_audience="Urban males aged 25-40 in metro cities",
-            campaign_goal="Drive 15% conversion rate",
-            budget=500000.0,
+            product_details={"product_name": "Premium Electronics Diwali Offer", "product_description": "", "cta_link": ""},
+            target_audience={"Group 1": {"min_age": 25, "max_age": 40, "Occupation": "Professional"}},
+            campaign_goal={"objective": "Drive 15% conversion rate"},
         ),
         status=CampaignStatus.DRAFT,
-        created_by="admin",
     )
 
 
@@ -132,7 +130,7 @@ def sample_campaigns() -> list[Campaign]:
             campaign_id=cid,
             campaign_brief=brief,
             status=status,
-            parsed_data=ParsedData(product_name=f"Product {cid[-1]}"),
+            parsed_data=ParsedData(product_details={"product_name": f"Product {cid[-1]}", "product_description": "", "cta_link": ""}),
         )
         for cid, brief, status in configs
     ]

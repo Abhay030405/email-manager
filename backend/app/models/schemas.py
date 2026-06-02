@@ -111,15 +111,19 @@ class CustomerResponse(BaseModel):
 
 class CampaignCreate(BaseModel):
     campaign_brief: str = Field(..., min_length=1)
-    created_by: str = ""
     parsed_data: Optional[ParsedData] = None
 
     model_config = {
         "json_schema_extra": {
             "examples": [
                 {
-                    "campaign_brief": "Launch summer sale for running shoes targeting active users aged 20-40 with $5000 budget",
-                    "created_by": "marketing_team",
+                    "campaign_brief": "Launch summer sale for running shoes targeting active users aged 20-40",
+                    "parsed_data": {
+                        "product_details": {"product_name": "Running Shoes", "product_description": "Premium running shoes", "cta_link": "https://example.com/shop"},
+                        "target_audience": {"Group 1": {"min_age": 20, "max_age": 40}},
+                        "campaign_goal": {"objective": "Drive sign-ups / conversions"},
+                        "campaign_preferences": {"email_tone": "Friendly", "campaign_name": "Summer Sale 2026", "content_hints": ""},
+                    },
                 }
             ]
         }
@@ -139,7 +143,6 @@ class CampaignResponse(BaseModel):
     parsed_data: ParsedData
     status: CampaignStatus
     segments: list[str]
-    created_by: str
     mock_campaign_id: Optional[str] = None
     scheduled_time: Optional[datetime] = None
     created_at: datetime
@@ -255,7 +258,7 @@ class MetricsResponse(BaseModel):
     unique_clicks: int
     performance_score: float
     calculated_at: datetime
-    collected_at: Optional[datetime]
+    collected_at: Optional[datetime] = None
     last_updated: datetime
 
 

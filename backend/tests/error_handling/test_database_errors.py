@@ -27,7 +27,7 @@ def _sample_campaign(**kwargs) -> Campaign:
     defaults = dict(
         campaign_id="camp-err-001",
         campaign_brief="Error handling test campaign",
-        parsed_data=ParsedData(product_name="TestProduct"),
+        parsed_data=ParsedData(product_details={"product_name": "TestProduct", "product_description": "", "cta_link": ""}),
         status=CampaignStatus.DRAFT,
     )
     defaults.update(kwargs)
