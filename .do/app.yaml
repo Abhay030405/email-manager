@@ -1,0 +1,157 @@
+# Digital Ocean App Platform spec
+# Deploy: doctl apps create --spec .do/app.yaml
+# Docs:   https://docs.digitalocean.com/products/app-platform/reference/app-spec/
+
+name: campaignx
+region: nyc   # change to: fra (Frankfurt) | sgp (Singapore) | blr (Bangalore) etc.
+
+services:
+  # ───────────────────────────────────────────────────────────────────────────
+  # FastAPI backend
+  # Reachable externally at: https://<app>.ondigitalocean.app/api/v1/...
+  # ───────────────────────────────────────────────────────────────────────────
+  - name: backend
+    github:
+      repo: Abhay030405/email-manager
+      branch: master
+      deploy_on_push: true
+    source_dir: backend
+    build_command: pip install -r requirements.txt
+    run_command: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    instance_count: 1
+    instance_size_slug: basic-xxs    # upgrade to basic-xs if agent runs time out
+    health_check:
+      http_path: /api/v1/health
+      initial_delay_seconds: 15
+      period_seconds: 30
+      failure_threshold: 3
+    envs:
+      # ── Application ────────────────────────────────────────────────────────
+      - key: ENVIRONMENT
+        value: production
+        scope: RUN_AND_BUILD_TIME
+      - key: LOG_LEVEL
+        value: INFO
+      - key: LOG_FORMAT
+        value: json
+      - key: DEBUG
+        value: "false"
+      - key: RELOAD
+        value: "false"
+      - key: ENABLE_DOCS
+        value: "false"        # set to "true" temporarily to access /docs on DO
+
+      # ── LLM via OpenRouter ─────────────────────────────────────────────────
+      # Set real value in DO dashboard → App → Settings → Environment Variables
+      - key: OPENROUTER_API_KEY
+        value: REPLACE_ME
+        type: SECRET
+      - key: OPENROUTER_BASE_URL
+        value: https://openrouter.ai/api/v1
+      - key: LLM_MODEL
+        value: google/gemini-2.5-flash-lite
+      - key: LLM_TEMPERATURE
+        value: "0.7"
+      - key: LLM_MAX_TOKENS
+        value: "2000"
+
+      # ── MongoDB Atlas ──────────────────────────────────────────────────────
+      # Paste your Atlas connection string in DO dashboard — do not commit here
+      - key: MONGODB_URI
+        value: REPLACE_ME
+        type: SECRET
+      - key: DATABASE_NAME
+        value: campaignx
+      - key: MONGODB_MIN_POOL_SIZE
+        value: "2"
+      - key: MONGODB_MAX_POOL_SIZE
+        value: "10"
+
+      # ── Mock Campaign API ──────────────────────────────────────────────────
+      - key: MOCK_CAMPAIGN_API_URL
+        value: https://mock-campaign-api.onrender.com
+      - key: MOCK_API_TIMEOUT
+        value: "60"
+      - key: MOCK_API_MAX_RETRIES
+        value: "3"
+      - key: MOCK_API_RETRY_DELAY
+        value: "5"
+
+      # ── CORS ───────────────────────────────────────────────────────────────
+      # With ingress both services share one domain, so CORS is same-origin.
+      # Still set this so /docs (Swagger UI) and direct API calls work.
+      # After first deploy, replace the placeholder with your actual DO app URL.
+      - key: ALLOWED_ORIGINS
+        value: '["https://REPLACE_WITH_APP_URL.ondigitalocean.app","http://localhost:8080","http://localhost:3000"]'
+      - key: ALLOW_CREDENTIALS
+        value: "true"
+      - key: ALLOWED_METHODS
+        value: '["GET","POST","PUT","DELETE","PATCH","OPTIONS"]'
+      - key: ALLOWED_HEADERS
+        value: '["*"]'
+
+      # ── Security ───────────────────────────────────────────────────────────
+      # Generate: openssl rand -hex 32
+      - key: SECRET_KEY
+        value: REPLACE_ME
+        type: SECRET
+      - key: ALGORITHM
+        value: HS256
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "30"
+
+      # ── LangChain / LangGraph ──────────────────────────────────────────────
+      - key: LANGCHAIN_TRACING_V2
+        value: "false"
+      - key: LANGCHAIN_PROJECT
+        value: campaignx
+      - key: LANGGRAPH_CHECKPOINT_ENABLED
+        value: "true"
+
+      # ── Agent tuning ───────────────────────────────────────────────────────
+      - key: AGENT_TIMEOUT
+        value: "300"
+      - key: AGENT_MAX_RETRIES
+        value: "3"
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Next.js frontend
+  # Serves everything not matched by /api in the ingress rules below
+  # ───────────────────────────────────────────────────────────────────────────
+  - name: frontend
+    github:
+      repo: Abhay030405/email-manager
+      branch: master
+      deploy_on_push: true
+    source_dir: frontend
+    build_command: npm install && npm run build
+    run_command: npx next start -p $PORT
+    instance_count: 1
+    instance_size_slug: basic-xxs
+    envs:
+      # NEXT_PUBLIC_* vars are baked into the client bundle at build time —
+      # scope must include BUILD_TIME.
+      # With ingress, both services share the same DO app URL, so the frontend
+      # calls /api/v1/... on its own domain. Set this to your actual DO app URL.
+      # After first deploy copy the URL from DO dashboard and redeploy frontend.
+      - key: NEXT_PUBLIC_API_URL
+        value: https://REPLACE_WITH_APP_URL.ondigitalocean.app
+        scope: BUILD_TIME
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Ingress — one shared public URL for both services
+#   /api/*  → backend  (FastAPI — all routes already start with /api/v1/...)
+#   /*      → frontend (Next.js)
+# ─────────────────────────────────────────────────────────────────────────────
+ingress:
+  rules:
+    - match:
+        path:
+          prefix: /api
+      component:
+        name: backend
+    - match:
+        path:
+          prefix: /
+      component:
+        name: frontend
