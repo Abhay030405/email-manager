@@ -1,6 +1,6 @@
 """Repository for campaign data access."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
@@ -51,6 +51,20 @@ class CampaignRepository(BaseRepository[Campaign]):
         if new_status == CampaignStatus.APPROVED:
             update_data["approved_at"] = datetime.utcnow()
         return await self.update(campaign_id, update_data)
+
+    async def update_step(self, campaign_id: str, step: str) -> None:
+        """Record the currently-executing LangGraph node — called on every node entry."""
+        await self.update(campaign_id, {
+            "current_step": step,
+            "updated_at": datetime.now(timezone.utc),
+        })
+
+    async def clear_step(self, campaign_id: str) -> None:
+        """Null out current_step when the pipeline finishes or fails."""
+        await self.update(campaign_id, {
+            "current_step": None,
+            "updated_at": datetime.now(timezone.utc),
+        })
 
     async def find_pending_approval(self) -> list[Campaign]:
         """Return campaigns waiting for approval."""

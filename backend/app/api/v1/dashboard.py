@@ -9,7 +9,6 @@ from app.db.repositories.performance_alert_repo import PerformanceAlertRepositor
 from app.models.campaign import CampaignStatus
 from app.services.performance_analysis_service import PerformanceAnalysisService
 from app.db.repositories.analytics_repo import AnalyticsRepository
-from app.db.repositories.customer_repo import CustomerRepository
 from app.db.repositories.metric_aggregation_repo import MetricAggregationRepository
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
@@ -78,7 +77,6 @@ async def get_campaign_dashboard(
         metrics_repo=metrics_repo,
         analytics_repo=AnalyticsRepository(db),
         aggregation_repo=MetricAggregationRepository(db),
-        customer_repo=CustomerRepository(db),
         campaign_repo=repo,
     )
     alert_repo = PerformanceAlertRepository(db)

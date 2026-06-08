@@ -12,91 +12,112 @@ def _make_agent() -> CustomerSegmentationAgent:
         return CustomerSegmentationAgent()
 
 
-VALID_SEGMENTATION_RESPONSE = """{
-  "segments": [
-    {
-      "segment_name": "young_professionals",
-      "description": "Young working professionals",
-      "customer_ids": ["CUST0001", "CUST0002"],
-      "size": 2,
-      "priority": 1
-    },
-    {
-      "segment_name": "seniors",
-      "description": "Senior citizens",
-      "customer_ids": ["CUST0004"],
-      "size": 1,
-      "priority": 2
+SAMPLE_TARGET_AUDIENCE = {
+    "Group 1": {
+        "min_age": 25,
+        "max_age": 40,
+        "gender": "Male",
+        "KYC_status": "Y",
     }
-  ],
-  "total_customers": 3,
-  "coverage_pct": 100.0,
-  "distribution": {"young_professionals": 66.7, "seniors": 33.3}
-}"""
+}
+
+SAMPLE_FILTER_RESULT = {"count": 50, "customer_ids": [f"CUST{i:04d}" for i in range(50)]}
 
 
 @pytest.mark.unit
 class TestSegmentationAgent:
 
     @pytest.mark.asyncio
-    async def test_segment_customers_returns_segments(self, sample_customers_small):
+    async def test_execute_returns_segments(self):
         agent = _make_agent()
-        mock_response = MagicMock()
-        mock_response.content = VALID_SEGMENTATION_RESPONSE
-        agent.llm.ainvoke = AsyncMock(return_value=mock_response)
 
-        result = await agent.execute({
-            "customers": [c.model_dump() for c in sample_customers_small[:3]],
-            "target_audience": "young professionals",
-            "campaign_goal": "conversion",
-        })
+        with patch.object(agent, "_call_filter", new=AsyncMock(return_value=SAMPLE_FILTER_RESULT)):
+            result = await agent.execute({
+                "target_audience": SAMPLE_TARGET_AUDIENCE,
+                "campaign_goal": "conversion",
+            })
 
         assert result is not None
         assert "segments" in result
 
     @pytest.mark.asyncio
-    async def test_segment_result_has_required_keys(self, sample_customers_small):
+    async def test_execute_result_has_required_keys(self):
         agent = _make_agent()
-        mock_response = MagicMock()
-        mock_response.content = VALID_SEGMENTATION_RESPONSE
-        agent.llm.ainvoke = AsyncMock(return_value=mock_response)
 
-        result = await agent.execute({
-            "customers": [c.model_dump() for c in sample_customers_small[:3]],
-            "target_audience": "young professionals",
-            "campaign_goal": "conversion",
-        })
+        with patch.object(agent, "_call_filter", new=AsyncMock(return_value=SAMPLE_FILTER_RESULT)):
+            result = await agent.execute({
+                "target_audience": SAMPLE_TARGET_AUDIENCE,
+                "campaign_goal": "conversion",
+            })
 
         assert "segments" in result
         assert "total_customers" in result
+        assert "coverage_pct" in result
 
     @pytest.mark.asyncio
-    async def test_empty_customers_raises(self):
+    async def test_execute_empty_target_audience_returns_general(self):
         agent = _make_agent()
 
-        with pytest.raises(Exception):
-            await agent.execute({
-                "customers": [],
-                "target_audience": "anyone",
+        with patch.object(agent, "_call_filter", new=AsyncMock(return_value={"count": 0, "customer_ids": []})):
+            result = await agent.execute({
+                "target_audience": {},
                 "campaign_goal": "awareness",
             })
 
-    def test_build_candidate_groups_young_professionals(self, sample_customers_small):
-        agent = _make_agent()
-        customers_dicts = [c.model_dump() for c in sample_customers_small]
-        groups = agent._build_candidate_groups(customers_dicts, "conversion")
-        assert isinstance(groups, dict)
-        assert len(groups) > 0
+        assert "segments" in result
 
-    def test_ensure_coverage_assigns_all_customers(self, sample_customers_small):
+    @pytest.mark.asyncio
+    async def test_execute_creates_sub_segments(self):
         agent = _make_agent()
-        customers_dicts = [c.model_dump() for c in sample_customers_small]
-        all_ids = [c.customer_id for c in sample_customers_small]
-        segments = [
-            {"segment_name": "group_a", "customer_ids": all_ids[:5], "size": 5},
-        ]
-        result = agent._ensure_coverage(segments, customers_dicts, len(all_ids))
-        covered = set()
-        for seg in result:
-            covered.update(seg["customer_ids"])
-        assert len(covered) == len(all_ids)
+
+        active_result = {"count": 20, "customer_ids": [f"CUST00{i:02d}" for i in range(20)]}
+        inactive_result = {"count": 15, "customer_ids": [f"CUST01{i:02d}" for i in range(15)]}
+        dormant_result = {"count": 30, "customer_ids": [f"CUST02{i:02d}" for i in range(30)]}
+
+        with patch.object(
+            agent,
+            "_call_filter",
+            new=AsyncMock(side_effect=[active_result, inactive_result, dormant_result]),
+        ):
+            result = await agent.execute({
+                "target_audience": SAMPLE_TARGET_AUDIENCE,
+                "campaign_goal": "engagement",
+            })
+
+        assert len(result["segments"]) >= 1
+
+    def test_build_filter_body_maps_fields_correctly(self):
+        from app.agents.segmentation import _build_filter_body
+
+        group = {
+            "min_age": 25,
+            "max_age": 40,
+            "gender": "Male",
+            "min_income": 50000,
+            "max_income": 100000,
+            "KYC_status": "Y",
+            "Credit_score": 700,
+            "Social_Media_Active": "Y",
+        }
+        body = _build_filter_body(group, app_installed="Y", existing_customer="Y")
+
+        assert body["min_age"] == 25
+        assert body["max_age"] == 40
+        assert body["gender"] == ["Male"]
+        assert body["min_monthly_income"] == 50000
+        assert body["max_monthly_income"] == 100000
+        assert body["kyc_status"] == "Y"
+        assert body["min_credit_score"] == 700
+        assert body["social_media_active"] == "Y"
+        assert body["app_installed"] == "Y"
+        assert body["existing_customer"] == "Y"
+
+    def test_build_filter_body_omits_none_fields(self):
+        from app.agents.segmentation import _build_filter_body
+
+        body = _build_filter_body({}, app_installed=None, existing_customer="N")
+
+        assert "min_age" not in body
+        assert "max_age" not in body
+        assert "app_installed" not in body
+        assert body["existing_customer"] == "N"

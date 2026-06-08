@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, field_validator
 
 class CampaignStatus(str, Enum):
     DRAFT = "draft"
+    RUNNING = "running"              # pipeline is actively executing
     PENDING_APPROVAL = "pending_approval"
     APPROVED = "approved"
     REJECTED = "rejected"
@@ -58,6 +59,7 @@ class Campaign(BaseModel):
     )
     parsed_data: ParsedData = Field(default_factory=ParsedData)
     status: CampaignStatus = CampaignStatus.DRAFT
+    current_step: Optional[str] = Field(None, description="Active LangGraph node name, null when idle")
     segments: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

@@ -6,7 +6,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.api.deps import CampaignRepoDep, DBDep, MetricsRepoDep
 from app.db.repositories.analytics_repo import AnalyticsRepository
-from app.db.repositories.customer_repo import CustomerRepository
 from app.db.repositories.metric_aggregation_repo import MetricAggregationRepository
 from app.db.repositories.variant_repo import VariantRepository
 from app.services.metrics_aggregation_service import MetricsAggregationService
@@ -23,7 +22,6 @@ def _analysis_svc(db: DBDep, metrics_repo: MetricsRepoDep) -> PerformanceAnalysi
         metrics_repo=metrics_repo,
         analytics_repo=AnalyticsRepository(db),
         aggregation_repo=MetricAggregationRepository(db),
-        customer_repo=CustomerRepository(db),
         campaign_repo=None,  # type: ignore[arg-type]
     )
 

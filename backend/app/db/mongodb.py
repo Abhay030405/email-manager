@@ -8,7 +8,6 @@ from pymongo.errors import ConnectionFailure, ServerSelectionTimeoutError
 from app.core.config import get_settings
 from app.models import (
     CAMPAIGN_INDEXES,
-    CUSTOMER_INDEXES,
     METRICS_INDEXES,
     SEGMENT_INDEXES,
     VARIANT_INDEXES,
@@ -71,7 +70,6 @@ class MongoDB:
         db = cls.get_db()
 
         index_map = {
-            "customers": CUSTOMER_INDEXES,
             "campaigns": CAMPAIGN_INDEXES,
             "campaign_variants": VARIANT_INDEXES,
             "metrics": METRICS_INDEXES,

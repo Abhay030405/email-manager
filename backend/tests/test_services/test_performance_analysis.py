@@ -24,7 +24,6 @@ def _make_service(metrics=None, campaigns=None, agg=None):
     analytics_repo.create_snapshot = AsyncMock()
 
     aggregation_repo = MagicMock()
-    customer_repo = MagicMock()
 
     campaign_repo = MagicMock()
     campaign_repo.find_all = AsyncMock(return_value=campaigns or [])
@@ -33,7 +32,6 @@ def _make_service(metrics=None, campaigns=None, agg=None):
         metrics_repo=metrics_repo,
         analytics_repo=analytics_repo,
         aggregation_repo=aggregation_repo,
-        customer_repo=customer_repo,
         campaign_repo=campaign_repo,
     )
     return svc, metrics_repo, analytics_repo, campaign_repo

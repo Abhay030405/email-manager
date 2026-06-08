@@ -103,11 +103,10 @@ async def test_parse_brief(body: ParseBriefRequest) -> dict[str, Any]:
 async def test_segmentation(
     body: CampaignIdRequest,
     campaign_repo: CampaignRepoDep,
-    client: MockClientDep,
 ) -> dict[str, Any]:
-    """Load target_audience from the campaign's parsed_data, fetch the full
-    customer pool from Mock API (falls back to MongoDB), then run
-    CustomerSegmentationAgent.  Segments are NOT saved to the DB."""
+    """Load target_audience from the campaign's parsed_data and run
+    CustomerSegmentationAgent, which calls POST /api/customers/filter on the
+    Mock API — no local customer data needed.  Segments are NOT saved to the DB."""
     campaign = await campaign_repo.find_by_id(body.campaign_id)
     _require_campaign(campaign, body.campaign_id)
 
@@ -116,35 +115,11 @@ async def test_segmentation(
     campaign_goal_raw = parsed_data.get("campaign_goal", {})
     campaign_goal_str = campaign_goal_raw.get("objective", "") if isinstance(campaign_goal_raw, dict) else str(campaign_goal_raw)
 
-    # Fetch customers — Mock API first, MongoDB fallback
-    try:
-        total = await asyncio.get_event_loop().run_in_executor(None, client.get_customer_count)
-        customers: list[dict] = []
-        offset = 0
-        while offset < total:
-            batch = await asyncio.get_event_loop().run_in_executor(
-                None, lambda o=offset: client.get_customers(limit=100, offset=o)
-            )
-            if not batch:
-                break
-            customers.extend(batch)
-            offset += len(batch)
-            if len(batch) < 100:
-                break
-    except Exception as exc:
-        logger.warning("Mock API unavailable, falling back to MongoDB: %s", exc)
-        from app.db.mongodb import MongoDB
-        from app.db.repositories.customer_repo import CustomerRepository
-        repo = CustomerRepository(MongoDB.get_db())
-        cached = await repo.find_all(limit=10_000)
-        customers = [c.model_dump() for c in cached]
-
     try:
         from app.agents.segmentation import CustomerSegmentationAgent
         agent = CustomerSegmentationAgent()
         result = await agent.execute({
-            "customers": customers,
-            "target_audience": target_audience_raw,  # dict of groups
+            "target_audience": target_audience_raw,
             "campaign_goal": campaign_goal_str,
         })
     except Exception as exc:
@@ -177,12 +152,7 @@ async def test_strategy(
             detail="No segments found for this campaign. Run /agents/segmentation first.",
         )
 
-    parsed_data = campaign.parsed_data.model_dump() if campaign.parsed_data else {}
-    campaign_goal_raw = parsed_data.get("campaign_goal", {})
-    parsed_brief = {
-        **parsed_data,
-        "campaign_goal": campaign_goal_raw.get("objective", "") if isinstance(campaign_goal_raw, dict) else str(campaign_goal_raw),
-    }
+    parsed_brief = campaign.parsed_data.model_dump() if campaign.parsed_data else {}
 
     segment_entries = [
         {
@@ -190,8 +160,8 @@ async def test_strategy(
             "description": s.description,
             "customer_ids": s.customer_ids,
             "size": len(s.customer_ids),
-            "targeting_priority": 3,
-            "recommended_approach": "Use benefit-led messaging.",
+            "targeting_priority": s.targeting_priority,
+            "recommended_approach": s.recommended_approach,
         }
         for s in segments
     ]
@@ -251,12 +221,7 @@ async def test_content_generation(
     state = await _load_workflow_state(body.campaign_id)
     strategy = state.get("strategy") or {}
 
-    parsed_data = campaign.parsed_data.model_dump() if campaign.parsed_data else {}
-    campaign_goal_raw = parsed_data.get("campaign_goal", {})
-    parsed_brief = {
-        **parsed_data,
-        "campaign_goal": campaign_goal_raw.get("objective", "") if isinstance(campaign_goal_raw, dict) else str(campaign_goal_raw),
-    }
+    parsed_brief = campaign.parsed_data.model_dump() if campaign.parsed_data else {}
 
     campaign_prefix = body.campaign_id.split("-")[0]
     variant_id = f"{campaign_prefix}_v_test"
@@ -266,8 +231,8 @@ async def test_content_generation(
         "description": seg.description,
         "customer_ids": seg.customer_ids,
         "size": len(seg.customer_ids),
-        "targeting_priority": 3,
-        "recommended_approach": "Use benefit-led messaging.",
+        "targeting_priority": seg.targeting_priority,
+        "recommended_approach": seg.recommended_approach,
     }
 
     try:

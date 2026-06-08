@@ -16,6 +16,27 @@ logger = logging.getLogger(__name__)
 # ── Constants ─────────────────────────────────────────────────────────────────
 
 _ALLOWED_GOALS = {"awareness", "conversion", "retention", "engagement"}
+
+# Keyword → goal enum mapping (checked in order; first match wins)
+_GOAL_KEYWORDS: list[tuple[list[str], str]] = [
+    (["conver", "sign-up", "signup", "sale", "purchase", "apply", "click", "cta", "lead"], "conversion"),
+    (["retain", "loyal", "churn", "re-engag", "re-activ", "laps"], "retention"),
+    (["engag", "interact", "open rate", "response", "participat"], "engagement"),
+    (["aware", "brand", "reach", "visib", "impres", "introduc"], "awareness"),
+]
+
+
+def _normalise_goal(raw: str) -> str:
+    """Map any goal string to one of the four allowed enum values."""
+    if not raw:
+        return "awareness"
+    lower = raw.lower().strip()
+    if lower in _ALLOWED_GOALS:
+        return lower
+    for keywords, goal in _GOAL_KEYWORDS:
+        if any(kw in lower for kw in keywords):
+            return goal
+    return "awareness"
 _MAX_SELECTED_SEGMENTS = 5
 _MIN_SELECTED_SEGMENTS = 2
 
@@ -52,6 +73,38 @@ class StrategyInput(BaseModel):
     parsed_brief: ParsedBrief
     segments: list[SegmentOut]
     current_time: datetime
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalise_parsed_brief(cls, values: dict) -> dict:
+        """Flatten the 4-section parsed_data format into a ParsedBrief-compatible dict."""
+        brief = values.get("parsed_brief")
+        if not isinstance(brief, dict) or "product_details" not in brief:
+            return values
+        details = brief.get("product_details", {})
+        prefs = brief.get("campaign_preferences", {})
+        goal_raw = brief.get("campaign_goal", "")
+        if isinstance(goal_raw, str):
+            goal_str = goal_raw
+        elif isinstance(goal_raw, dict):
+            goal_str = goal_raw.get("objective", "")
+        else:
+            goal_str = ""
+        hints = prefs.get("content_hints", "") or ""
+        key_messages = [p.strip() for p in hints.split(",") if p.strip()]
+        values["parsed_brief"] = {
+            "product_name": details.get("product_name") or "Unknown",
+            "product_description": details.get("product_description", ""),
+            "cta_link": details.get("cta_link", ""),
+            "campaign_goal": _normalise_goal(goal_str),
+            "campaign_objective": goal_str,
+            "campaign_name": prefs.get("campaign_name", ""),
+            "preferred_tone": (prefs.get("email_tone") or "professional").lower(),
+            "key_messages": key_messages[:5],
+            "budget": brief.get("budget"),
+            "target_audience": brief.get("target_audience", {}),
+        }
+        return values
 
     @field_validator("segments")
     @classmethod

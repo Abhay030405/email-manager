@@ -1,5 +1,6 @@
 """Campaign CRUD and workflow endpoints."""
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Any
@@ -229,18 +230,21 @@ async def pending_approval(campaign_id: str, repo: CampaignRepoDep) -> dict[str,
 @router.post(
     "/{campaign_id}/start",
     responses={**_404, **_400},
-    summary="Start campaign workflow as background task",
+    summary="Start campaign workflow — returns immediately, pipeline runs in background",
 )
 async def start_campaign(
     campaign_id: str,
-    background_tasks: BackgroundTasks,
     repo: CampaignRepoDep,
 ) -> WorkflowStatusResponse:
-    """Trigger the campaign creation workflow. Returns immediately; workflow runs in background."""
+    """Trigger the campaign creation workflow.
+
+    Returns immediately with status=running.
+    Poll GET /campaigns/{id}/status every 4 seconds to track progress.
+    """
     campaign = await repo.find_by_id(campaign_id)
     if not campaign:
         raise HTTPException(status_code=404, detail=_NOT_FOUND)
-    if campaign.status != CampaignStatus.DRAFT:
+    if campaign.status not in {CampaignStatus.DRAFT, CampaignStatus.REJECTED}:
         raise HTTPException(
             status_code=400,
             detail=f"Cannot start workflow for campaign in status '{campaign.status.value}'",
@@ -248,11 +252,26 @@ async def start_campaign(
 
     from app.orchestration.campaign_graph import run_campaign_workflow  # noqa: PLC0415
 
-    background_tasks.add_task(run_campaign_workflow, campaign_id, campaign.campaign_brief)
+    task = asyncio.create_task(
+        run_campaign_workflow(campaign_id, campaign.campaign_brief)
+    )
+
+    def _on_done(t: asyncio.Task) -> None:
+        if t.cancelled():
+            logger.warning("Workflow task cancelled for campaign %s", campaign_id)
+        elif t.exception():
+            logger.error(
+                "Workflow task failed for campaign %s",
+                campaign_id,
+                exc_info=t.exception(),
+            )
+
+    task.add_done_callback(_on_done)
+
     return WorkflowStatusResponse(
         campaign_id=campaign_id,
-        status="started",
-        message="Campaign workflow started in background",
+        status="running",
+        message="Campaign workflow started. Poll GET /campaigns/{id}/status for progress.",
     )
 
 
@@ -316,6 +335,52 @@ async def get_workflow_status(campaign_id: str, repo: CampaignRepoDep) -> dict[s
         "status": campaign.status.value,
         "mock_campaign_id": campaign.mock_campaign_id,
         "updated_at": campaign.updated_at.isoformat() if campaign.updated_at else None,
+    }
+
+
+_STEP_LABELS: dict[str, str] = {
+    "parse_brief":        "Parsing campaign brief",
+    "segmentation":       "Segmenting customers",
+    "strategy":           "Generating campaign strategy",
+    "content_generation": "Creating email content",
+    "approval":           "Checking approval status",
+    "wait_approval":      "Waiting for human approval",
+    "execution":          "Executing campaign",
+}
+
+_TERMINAL_STATUSES = {
+    CampaignStatus.COMPLETED,
+    CampaignStatus.REJECTED,
+    CampaignStatus.PENDING_APPROVAL,
+}
+
+
+@router.get(
+    "/{campaign_id}/status",
+    responses=_404,
+    summary="Lightweight polling endpoint — returns current step and status",
+)
+async def get_campaign_status(
+    campaign_id: str,
+    repo: CampaignRepoDep,
+) -> dict[str, Any]:
+    """Poll this endpoint every 4 seconds after calling POST /start.
+
+    Returns job_id, status, current LangGraph node, and whether the pipeline
+    has reached a terminal state (completed / rejected / pending_approval).
+    """
+    campaign = await repo.find_by_id(campaign_id)
+    if not campaign:
+        raise HTTPException(status_code=404, detail=_NOT_FOUND)
+
+    current_step = campaign.current_step
+    return {
+        "job_id": campaign_id,
+        "status": campaign.status.value,
+        "current_step": current_step,
+        "current_step_label": _STEP_LABELS.get(current_step) if current_step else None,
+        "is_complete": campaign.status in _TERMINAL_STATUSES,
+        "updated_at": campaign.updated_at.isoformat(),
     }
 
 

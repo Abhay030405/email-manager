@@ -273,6 +273,22 @@ class MockCampaignClient:
             return result
         return result.get("results", result.get("data", []))
 
+    def filter_customers(self, criteria: dict[str, Any]) -> dict[str, Any]:
+        """Filter the customer cohort by criteria and return matching IDs.
+
+        Args:
+            criteria: Filter body matching the /api/customers/filter schema.
+                      All fields optional; omit to skip that filter.
+
+        Returns:
+            Dict with ``count`` (int) and ``customer_ids`` (list[str]).
+        """
+        return self._request_with_retry(
+            "POST",
+            "/api/customers/filter",
+            json=criteria,
+        )
+
     def health_check(self) -> dict[str, Any]:
         """Ping the Mock API root endpoint and return connectivity status.
 

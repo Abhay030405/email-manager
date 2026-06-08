@@ -39,15 +39,6 @@ from app.schemas.campaign import (
     CampaignWorkflowStatus,
 )
 
-# ── Customer ──────────────────────────────────────────────────────────────────
-from app.schemas.customer import (
-    CustomerCreate,
-    CustomerListResponse,
-    CustomerResponse,
-    CustomerSchema,
-    CustomerUpdate,
-)
-
 # ── Metrics ───────────────────────────────────────────────────────────────────
 from app.schemas.metrics import (
     CampaignMetricsResponse,
@@ -58,7 +49,13 @@ from app.schemas.metrics import (
 )
 
 # ── Segment ───────────────────────────────────────────────────────────────────
-from app.schemas.segment import SegmentCreate, SegmentResponse, SegmentUpdate
+from app.schemas.segment import (
+    SegmentBulkCreateRequest,
+    SegmentCreate,
+    SegmentItemInput,
+    SegmentResponse,
+    SegmentUpdate,
+)
 
 # ── Variant ───────────────────────────────────────────────────────────────────
 from app.schemas.variant import (
@@ -94,12 +91,6 @@ __all__ = [
     "CampaignUpdate",
     "CampaignUpdateRequest",
     "CampaignWorkflowStatus",
-    # Customer
-    "CustomerCreate",
-    "CustomerListResponse",
-    "CustomerResponse",
-    "CustomerSchema",
-    "CustomerUpdate",
     # Metrics
     "CampaignMetricsResponse",
     "CustomerResultSchema",
@@ -107,7 +98,9 @@ __all__ = [
     "MetricsResponse",
     "MetricsUpdate",
     # Segment
+    "SegmentBulkCreateRequest",
     "SegmentCreate",
+    "SegmentItemInput",
     "SegmentResponse",
     "SegmentUpdate",
     # Variant

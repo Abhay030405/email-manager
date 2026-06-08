@@ -12,8 +12,23 @@ from pydantic import BaseModel, Field, model_validator
 _YN_DESC = "Y / N / None (any)"
 
 
+def _age_range_to_filter(age_range: dict[str, int]) -> dict[str, int]:
+    """Convert an age_range dict to min_age/max_age filter keys, swapping if inverted."""
+    result: dict[str, int] = {}
+    if age_range.get("min") is not None:
+        result["min_age"] = age_range["min"]
+    if age_range.get("max") is not None:
+        result["max_age"] = age_range["max"]
+    if result.get("min_age") and result.get("max_age") and result["min_age"] > result["max_age"]:
+        result["min_age"], result["max_age"] = result["max_age"], result["min_age"]
+    return result
+
+
 class SegmentCriteria(BaseModel):
-    """Demographic filter criteria stored with each segment document."""
+    """Demographic filter criteria stored with each segment document.
+
+    These fields map 1-to-1 to the POST /api/customers/filter request body.
+    """
 
     age_range: Optional[dict[str, int]] = Field(None, description="Age range with min/max keys")
     gender: Optional[str] = Field(None, description="Male / Female / Other")
@@ -25,43 +40,28 @@ class SegmentCriteria(BaseModel):
     social_media_active: Optional[str] = Field(None, description=_YN_DESC)
     existing_customer: Optional[str] = Field(None, description=_YN_DESC)
 
-    def matches_customer(self, customer: Any) -> bool:
-        """Check whether a Customer instance satisfies all segment criteria."""
-        return (
-            self._check_age(customer)
-            and self._check_financials(customer)
-            and self._check_flags(customer)
-        )
-
-    def _check_age(self, customer: Any) -> bool:
-        if self.age_range is not None:
-            age_min = self.age_range.get("min", 0)
-            age_max = self.age_range.get("max", 120)
-            if not (age_min <= customer.Age <= age_max):
-                return False
-        if self.gender is not None and customer.Gender != self.gender:
-            return False
-        return True
-
-    def _check_financials(self, customer: Any) -> bool:
-        income = customer.Monthly_Income
-        if self.min_income is not None and income < self.min_income:
-            return False
-        if self.max_income is not None and income > self.max_income:
-            return False
-        if self.min_credit_score is not None and customer.Credit_score < self.min_credit_score:
-            return False
-        return True
-
-    def _check_flags(self, customer: Any) -> bool:
-        checks = [
-            (self.kyc_status,        customer.KYC_status),
-            (self.app_installed,     customer.App_Installed),
-            (self.social_media_active, customer.Social_Media_Active),
-            (self.existing_customer, customer.Existing_Customer),
-        ]
-        return all(expected is None or customer_val == expected
-                   for expected, customer_val in checks)
+    def to_filter_body(self) -> dict[str, Any]:
+        """Build the request body for POST /api/customers/filter."""
+        body: dict[str, Any] = {}
+        if self.age_range:
+            body.update(_age_range_to_filter(self.age_range))
+        if self.gender:
+            body["gender"] = [self.gender]
+        if self.min_income is not None:
+            body["min_monthly_income"] = self.min_income
+        if self.max_income is not None:
+            body["max_monthly_income"] = self.max_income
+        if self.min_credit_score is not None:
+            body["min_credit_score"] = self.min_credit_score
+        if self.kyc_status:
+            body["kyc_status"] = self.kyc_status
+        if self.app_installed:
+            body["app_installed"] = self.app_installed
+        if self.social_media_active:
+            body["social_media_active"] = self.social_media_active
+        if self.existing_customer:
+            body["existing_customer"] = self.existing_customer
+        return body
 
 
 class Segment(BaseModel):
@@ -77,6 +77,8 @@ class Segment(BaseModel):
     customer_ids: list[str] = Field(default_factory=list)
     segment_criteria: SegmentCriteria = Field(default_factory=SegmentCriteria)
     size: int = Field(0, ge=0, description="Number of customers in segment")
+    targeting_priority: int = Field(1, ge=1, le=5, description="Segment priority from segmentation agent (1–5)")
+    recommended_approach: str = Field("", description="Messaging approach from segmentation agent")
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     @model_validator(mode="after")

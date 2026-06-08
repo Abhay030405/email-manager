@@ -9,9 +9,7 @@ from mongomock_motor import AsyncMongoMockClient
 
 from app.db.repositories.campaign_repo import CampaignRepository
 from app.db.repositories.variant_repo import VariantRepository
-from app.db.repositories.customer_repo import CustomerRepository
 from app.models.campaign import Campaign, CampaignStatus, ParsedData
-from app.models.customer import Customer
 from app.models.variant import CampaignVariant, VariantStatus
 
 
@@ -27,7 +25,6 @@ async def repos(db):
     return {
         "campaign": CampaignRepository(db),
         "variant": VariantRepository(db),
-        "customer": CustomerRepository(db),
     }
 
 
@@ -122,35 +119,3 @@ class TestCampaignWorkflowIntegration:
         assert "variants" in result
         assert len(result["variants"]) >= 1
 
-    @pytest.mark.asyncio
-    async def test_customers_synced_and_queryable(self, repos):
-        customers = [
-            Customer(
-                customer_id=f"CUST{100 + i:04d}",
-                Full_name=f"Customer {i}",
-                email=f"cust{i}@example.com",
-                Age=25 + i,
-                Gender="Male",
-                Marital_Status="Single",
-                Family_Size=1,
-                Dependent_count=0,
-                Occupation="Engineer",
-                Occupation_type="Full-time",
-                Monthly_Income=60000 + i * 5000,
-                KYC_status="Y",
-                City="Bangalore",
-                Kids_in_Household=0,
-                App_Installed="Y",
-                Existing_Customer="N",
-                Credit_score=700 + i,
-                Social_Media_Active="Y",
-                synced_from_mock_api=True,
-            )
-            for i in range(5)
-        ]
-
-        count = await repos["customer"].bulk_insert(customers)
-        assert count == 5
-
-        total = await repos["customer"].count()
-        assert total >= 5

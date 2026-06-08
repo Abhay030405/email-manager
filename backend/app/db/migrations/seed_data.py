@@ -1,18 +1,14 @@
 """Seed data for initial database population.
 
-Customers are fetched from the Mock Campaign API (5 000 records).
-Campaigns, variants, metrics, and segments are generated locally with
-Indian-context templates aligned to the Mock API schema.
+Customers are managed by the Mock Campaign API — they are NOT stored locally.
+This script seeds: campaigns, variants, metrics, and placeholder segments.
 """
 
 import logging
 from datetime import datetime, timedelta
 import random
 
-import httpx
-
 from app.core.config import get_settings
-from app.models.customer import Customer
 from app.models.campaign import Campaign, CampaignStatus, ParsedData
 from app.models.variant import CampaignVariant, VariantStatus
 from app.models.metrics import Metrics
@@ -33,17 +29,17 @@ CAMPAIGN_TEMPLATES = [
         "brief": "Launch Diwali sale for premium electronics targeting urban males aged 25-40 in Mumbai and Delhi. CTA: https://example.com/diwali-sale",
         "parsed": ParsedData(
             product_details={"product_name": "Premium Electronics Diwali Offer", "product_description": "Top electronics at festive prices", "cta_link": "https://example.com/diwali-sale"},
-            target_audience={_G1: {"min_age": 25, "max_age": 40, "City": "Mumbai, Delhi", "Occupation_type": "Full-time"}},
+            target_audience={_G1: {"min_age": 25, "max_age": 40, "gender": "Male", "KYC_status": "Y"}},
             campaign_goal={"objective": "Drive 15% conversion rate"},
             campaign_preferences={"email_tone": "Friendly", "campaign_name": "Diwali Electronics 2026", "content_hints": ""},
         ),
         "segments": ["urban_young_males", "metro_tech_enthusiasts", "high_income_diwali"],
     },
     {
-        "brief": "Promote KYC-verified savings account for existing customers in Kolkata and Chennai with credit scores above 700.",
+        "brief": "Promote KYC-verified savings account for existing customers with credit scores above 700.",
         "parsed": ParsedData(
             product_details={"product_name": "Premium Savings Account", "product_description": "Higher interest savings for verified customers", "cta_link": "https://example.com/savings"},
-            target_audience={_G1: {"KYC_status": "Y", "Existing_Customer": "Y", "City": "Kolkata, Chennai", "Credit_score": 700}},
+            target_audience={_G1: {"KYC_status": "Y", "Existing_Customer": "Y", "Credit_score": 700}},
             campaign_goal={"objective": "Open 5000 new accounts"},
             campaign_preferences={"email_tone": "Formal", "campaign_name": "Premium Savings Q2", "content_hints": ""},
         ),
@@ -53,7 +49,7 @@ CAMPAIGN_TEMPLATES = [
         "brief": "Back-to-school campaign for families with kids targeting parents aged 30-50 across all cities.",
         "parsed": ParsedData(
             product_details={"product_name": "Back to School Bundle", "product_description": "Everything for school season", "cta_link": "https://example.com/school"},
-            target_audience={_G1: {"min_age": 30, "max_age": 50, "Kids_in_Household": 1}},
+            target_audience={_G1: {"min_age": 30, "max_age": 50}},
             campaign_goal={"objective": "Drive 12% conversion"},
             campaign_preferences={"email_tone": "Friendly", "campaign_name": "Back to School 2026", "content_hints": ""},
         ),
@@ -70,64 +66,64 @@ CAMPAIGN_TEMPLATES = [
         "segments": ["social_no_app", "young_digital_natives"],
     },
     {
-        "brief": "Re-engage non-existing customers with introductory offer. Self-employed and part-time workers in Tier-2 cities.",
+        "brief": "Re-engage non-existing customers with introductory offer for self-employed workers.",
         "parsed": ParsedData(
             product_details={"product_name": "New Customer Welcome Offer", "product_description": "Exclusive introductory offer", "cta_link": "https://example.com/welcome"},
-            target_audience={_G1: {"Existing_Customer": "N", "Occupation_type": "Self-employed", "City": "Patna, Indore, Bhopal"}},
+            target_audience={_G1: {"Existing_Customer": "N"}},
             campaign_goal={"objective": "Convert 10% to new customers"},
             campaign_preferences={"email_tone": "Friendly", "campaign_name": "New Customer Welcome", "content_hints": ""},
         ),
-        "segments": ["non_existing_self_employed", "tier2_prospects"],
+        "segments": ["non_existing_prospects", "new_customer_targets"],
     },
     {
-        "brief": "Premium credit card upsell for high-credit-score married professionals.",
+        "brief": "Premium credit card upsell for high-credit-score professionals.",
         "parsed": ParsedData(
             product_details={"product_name": "Platinum Credit Card", "product_description": "Premium card for high earners", "cta_link": "https://example.com/platinum"},
-            target_audience={_G1: {"Marital_Status": "Married", "Credit_score": 750, "Occupation_type": "Full-time"}},
+            target_audience={_G1: {"Credit_score": 750, "KYC_status": "Y"}},
             campaign_goal={"objective": "8% upgrade rate"},
             campaign_preferences={"email_tone": "Formal", "campaign_name": "Platinum Upsell", "content_hints": ""},
         ),
-        "segments": ["high_credit_married", "full_time_professionals"],
+        "segments": ["high_credit_professionals", "platinum_candidates"],
     },
     {
-        "brief": "Student discount program for college students aged 18-25.",
+        "brief": "Student discount program for young customers aged 18-25.",
         "parsed": ParsedData(
             product_details={"product_name": "Student Discount Program", "product_description": "Exclusive discounts for students", "cta_link": "https://example.com/students"},
-            target_audience={_G1: {"min_age": 18, "max_age": 25, "Occupation_type": "Student"}},
+            target_audience={_G1: {"min_age": 18, "max_age": 25}},
             campaign_goal={"objective": "Enroll 10000 students"},
             campaign_preferences={"email_tone": "Friendly", "campaign_name": "Student Discount 2026", "content_hints": ""},
         ),
-        "segments": ["college_students", "young_budget_conscious"],
+        "segments": ["young_customers", "budget_conscious_youth"],
     },
     {
         "brief": "Financial literacy webinar for retired customers. Emphasize ease and trust.",
         "parsed": ParsedData(
             product_details={"product_name": "Financial Literacy Webinar", "product_description": "Free webinar for retirement planning", "cta_link": "https://example.com/webinar"},
-            target_audience={_G1: {"Occupation_type": "Retired", "min_age": 60}},
+            target_audience={_G1: {"min_age": 60, "KYC_status": "Y"}},
             campaign_goal={"objective": "500 webinar registrations"},
             campaign_preferences={"email_tone": "Formal", "campaign_name": "Financial Literacy Series", "content_hints": ""},
         ),
-        "segments": ["retired_customers", "senior_digital_learners"],
+        "segments": ["senior_customers", "retirement_planning"],
     },
     {
-        "brief": "Festive personal loan campaign for salaried employees in Bangalore and Hyderabad.",
+        "brief": "Festive personal loan campaign for salaried employees.",
         "parsed": ParsedData(
             product_details={"product_name": "Festive Personal Loan", "product_description": "Instant personal loan at low rates", "cta_link": "https://example.com/loan"},
-            target_audience={_G1: {"Occupation_type": "Full-time", "City": "Bengaluru, Hyderabad"}},
+            target_audience={_G1: {"min_income": 40000, "KYC_status": "Y", "Existing_Customer": "Y"}},
             campaign_goal={"objective": "Disburse 2000 loans"},
             campaign_preferences={"email_tone": "Urgent", "campaign_name": "Festive Loan 2026", "content_hints": ""},
         ),
-        "segments": ["salaried_south_metro", "high_income_full_time"],
+        "segments": ["salaried_existing", "high_income_loan_eligible"],
     },
     {
-        "brief": "Women's Day special campaign for female customers across all cities. Highlight exclusive offers.",
+        "brief": "Women's Day special campaign. Highlight exclusive offers for social-media-active customers.",
         "parsed": ParsedData(
             product_details={"product_name": "Women's Day Special", "product_description": "Exclusive offers for women", "cta_link": "https://example.com/womensday"},
-            target_audience={_G1: {"min_age": 18, "Social_Media_Active": "Y"}},
+            target_audience={_G1: {"gender": "Female", "Social_Media_Active": "Y"}},
             campaign_goal={"objective": "25% engagement increase"},
             campaign_preferences={"email_tone": "Friendly", "campaign_name": "Women's Day 2026", "content_hints": ""},
         ),
-        "segments": ["all_female_customers", "working_women", "female_app_users"],
+        "segments": ["female_social_active", "working_women"],
     },
 ]
 
@@ -180,58 +176,6 @@ VARIANT_TEMPLATES = [
         ("Happy Women's Day – Exclusive Rewards Inside", "<h1>Our Gift to You</h1><p>Unlock special rewards and cashback this Women's Day. Valid for a limited time.</p>"),
     ],
 ]
-
-
-# ── Fetch customers from Mock API ─────────────────────────────────
-
-
-async def fetch_customers_from_mock_api(
-    batch_size: int = 1000,
-    max_customers: int = 5000,
-    max_retries: int = 3,
-) -> list[Customer]:
-    """Fetch customers from the Mock Campaign API with retry logic.
-
-    Handles Render cold starts (30-50 s) by using a long timeout and retries.
-    """
-    customers: list[Customer] = []
-    offset = 0
-
-    async with httpx.AsyncClient(timeout=MOCK_API_TIMEOUT) as client:
-        while offset < max_customers:
-            url = f"{MOCK_API_BASE}/api/customers?limit={batch_size}&offset={offset}"
-            for attempt in range(1, max_retries + 1):
-                try:
-                    logger.info("Fetching customers offset=%d attempt=%d", offset, attempt)
-                    resp = await client.get(url)
-                    resp.raise_for_status()
-                    data = resp.json()
-                    break
-                except (httpx.HTTPStatusError, httpx.RequestError) as exc:
-                    logger.warning("Attempt %d failed: %s", attempt, exc)
-                    if attempt == max_retries:
-                        logger.error("All retries exhausted for offset=%d", offset)
-                        return customers
-            else:
-                break
-
-            # data may be a list or a dict with a 'customers' key
-            records = data if isinstance(data, list) else data.get("customers", [])
-            if not records:
-                break
-
-            for record in records:
-                try:
-                    customer = Customer.from_mock_api(record)
-                    customers.append(customer)
-                except Exception as exc:
-                    logger.warning("Skipping invalid customer record: %s", exc)
-
-            offset += batch_size
-            logger.info("Fetched %d customers so far", len(customers))
-
-    logger.info("Total customers fetched from Mock API: %d", len(customers))
-    return customers
 
 
 # ── Generator helpers ─────────────────────────────────────────────
@@ -315,56 +259,26 @@ def generate_seed_metrics(variants: list[CampaignVariant]) -> list[Metrics]:
     return metrics_list
 
 
-def generate_seed_segments(
-    campaigns: list[Campaign], customers: list[Customer]
-) -> list[Segment]:
-    """Generate segments matching Mock API customer fields."""
-    INDIAN_CITIES = [
-        "Mumbai", "Delhi", "Bangalore", "Kolkata", "Chennai",
-        "Hyderabad", "Pune", "Ahmedabad", "Jaipur", "Lucknow",
-    ]
+def generate_seed_segments(campaigns: list[Campaign]) -> list[Segment]:
+    """Generate placeholder segments for campaigns.
+
+    customer_ids are left empty — they are populated at runtime by the
+    segmentation agent via POST /api/customers/filter on the Mock API.
+    """
     all_segments: list[Segment] = []
     for campaign in campaigns:
         for seg_name in campaign.segments:
-            sample_size = random.randint(20, min(200, len(customers)))
-            selected = random.sample(customers, k=sample_size)
             segment = Segment(
                 campaign_id=campaign.campaign_id,
                 segment_name=seg_name,
-                description=f"Auto-generated segment: {seg_name.replace('_', ' ')}",
-                customer_ids=[c.customer_id for c in selected],
-                segment_criteria=SegmentCriteria(
-                    age_range={
-                        "min": random.randint(18, 25),
-                        "max": random.randint(35, 65),
-                    },
-                    gender=random.sample(["Male", "Female", "Other"], k=random.randint(1, 2)),
-                    cities=random.sample(INDIAN_CITIES, k=random.randint(2, 5)),
-                    occupation_type=random.sample(
-                        ["Full-time", "Part-time", "Self-employed", "Retired", "Student"],
-                        k=random.randint(1, 3),
-                    ),
-                    app_installed=random.choice(["Y", "N", None]),
-                    existing_customer=random.choice(["Y", "N", None]),
-                ),
+                description=f"Seed segment: {seg_name.replace('_', ' ')}",
+                customer_ids=[],
             )
             all_segments.append(segment)
     return all_segments
 
 
 # ── Orchestrator functions ────────────────────────────────────────
-
-
-async def seed_customers(db) -> int:
-    """Seed the customers collection from Mock API. Falls back to empty if API is down."""
-    customers = await fetch_customers_from_mock_api()
-    if not customers:
-        logger.warning("Mock API returned no customers — seeding 0 customers")
-        return 0
-    docs = [c.to_dict() for c in customers]
-    await db["customers"].insert_many(docs)
-    logger.info("Seeded %d customers from Mock API", len(docs))
-    return len(docs)
 
 
 async def seed_campaigns(db) -> tuple[list[Campaign], int]:
@@ -394,16 +308,9 @@ async def seed_metrics(db, variants: list[CampaignVariant]) -> int:
     return len(docs)
 
 
-async def seed_segments(db, campaigns: list[Campaign], customers: list[Customer] | None = None) -> int:
-    """Seed segments. Returns count."""
-    if not customers:
-        # Fetch from DB if already seeded
-        cursor = db["customers"].find().limit(5000)
-        customers = [Customer(**doc) async for doc in cursor]
-    if not customers:
-        logger.warning("No customers available for segment generation")
-        return 0
-    segments = generate_seed_segments(campaigns, customers)
+async def seed_segments(db, campaigns: list[Campaign]) -> int:
+    """Seed placeholder segments. Returns count."""
+    segments = generate_seed_segments(campaigns)
     docs = [s.model_dump() for s in segments]
     await db["segments"].insert_many(docs)
     logger.info("Seeded %d segments", len(docs))
@@ -412,31 +319,21 @@ async def seed_segments(db, campaigns: list[Campaign], customers: list[Customer]
 
 async def clear_database(db) -> None:
     """Drop all collections for a clean re-seed."""
-    for col in ["customers", "campaigns", "campaign_variants", "metrics", "segments"]:
+    for col in ["campaigns", "campaign_variants", "metrics", "segments"]:
         await db[col].drop()
     logger.info("Cleared all collections")
 
 
 async def seed_all(db) -> dict[str, int]:
-    """Full database seeding orchestrator.
-
-    Clears existing data, fetches customers from Mock API,
-    then populates all collections.
-    """
+    """Full database seeding orchestrator."""
     await clear_database(db)
 
-    customer_count = await seed_customers(db)
     campaigns, campaign_count = await seed_campaigns(db)
     variants, variant_count = await seed_variants(db, campaigns)
     metric_count = await seed_metrics(db, variants)
-
-    # Re-fetch customers from DB for segment assignment
-    cursor = db["customers"].find().limit(5000)
-    customers = [Customer(**doc) async for doc in cursor]
-    segment_count = await seed_segments(db, campaigns, customers)
+    segment_count = await seed_segments(db, campaigns)
 
     summary = {
-        "customers": customer_count,
         "campaigns": campaign_count,
         "variants": variant_count,
         "metrics": metric_count,

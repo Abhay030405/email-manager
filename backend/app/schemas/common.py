@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Any, Generic, Optional, TypeVar
 
 from fastapi import Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 T = TypeVar("T")
 
@@ -122,12 +122,20 @@ class HealthStatus(BaseModel):
 class WorkflowStatusResponse(BaseModel):
     """Returned immediately when a long-running workflow is triggered."""
 
+    job_id: str = Field("", description="Unique job identifier — same as campaign_id")
     campaign_id: str
-    status: str = Field(..., description="pending | running | completed | failed")
+    status: str = Field(..., description="draft | running | pending_approval | completed | failed")
     message: str = ""
+    current_step: Optional[str] = Field(None, description="Active LangGraph node name")
     mock_api_campaign_ids: dict[str, str] = Field(
         default_factory=dict,
         description="variant_id -> Mock API campaign_id mappings",
     )
     error: Optional[str] = None
     details: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _populate_job_id(self) -> "WorkflowStatusResponse":
+        if not self.job_id:
+            self.job_id = self.campaign_id
+        return self

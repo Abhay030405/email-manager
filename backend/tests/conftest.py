@@ -1,7 +1,4 @@
-"""Shared pytest fixtures for database testing.
-
-Updated for Mock Campaign API customer schema (18-field Indian demographics).
-"""
+"""Shared pytest fixtures for database testing."""
 
 import asyncio
 from datetime import datetime, timedelta
@@ -12,7 +9,6 @@ import pytest_asyncio
 from mongomock_motor import AsyncMongoMockClient
 
 from app.models.campaign import Campaign, CampaignStatus, ParsedData
-from app.models.customer import Customer
 from app.models.metrics import Metrics
 from app.models.segment import Segment, SegmentCriteria
 from app.models.variant import CampaignVariant, VariantStatus
@@ -36,68 +32,6 @@ async def mock_db():
 
 
 # ── Sample data factories ────────────────────────────────────────
-
-
-@pytest.fixture
-def sample_customer() -> Customer:
-    return Customer(
-        customer_id="CUST0001",
-        Full_name="Ravi Sharma",
-        email="ravi.sharma@example.com",
-        Age=30,
-        Gender="Male",
-        Marital_Status="Married",
-        Family_Size=4,
-        Dependent_count=2,
-        Occupation="Software Engineer",
-        Occupation_type="Full-time",
-        Monthly_Income=85000.0,
-        KYC_status="Y",
-        City="Mumbai",
-        Kids_in_Household=1,
-        App_Installed="Y",
-        Existing_Customer="Y",
-        Credit_score=750,
-        Social_Media_Active="Y",
-        synced_from_mock_api=True,
-    )
-
-
-@pytest.fixture
-def sample_customers() -> list[Customer]:
-    """Return a list of 5 diverse customers matching Mock API schema."""
-    return [
-        Customer(
-            customer_id=f"CUST{i:04d}",
-            Full_name=name,
-            email=f"{name.lower().replace(' ', '.')}@example.com",
-            Age=age,
-            Gender=gender,
-            Marital_Status=marital,
-            City=city,
-            Occupation_type=occ_type,
-            Monthly_Income=income,
-            Credit_score=credit,
-            App_Installed=app,
-            Existing_Customer=existing,
-            Social_Media_Active=social,
-            Family_Size=fam,
-            Dependent_count=dep,
-            Occupation=occ,
-            KYC_status=kyc,
-            Kids_in_Household=kids,
-        )
-        for i, (name, age, gender, marital, city, occ_type, income, credit, app, existing, social, fam, dep, occ, kyc, kids) in enumerate(
-            [
-                ("Priya Patel", 25, "Female", "Single", "Kolkata", "Full-time", 55000, 680, "Y", "Y", "Y", 3, 0, "Software Engineer", "Y", 0),
-                ("Amit Kumar", 40, "Male", "Married", "Delhi", "Self-employed", 120000, 790, "N", "Y", "N", 5, 2, "Business Owner", "Y", 1),
-                ("Sanjay Verma", 35, "Other", "Single", "Kolkata", "Part-time", 30000, 620, "Y", "N", "Y", 2, 0, "Freelancer", "N", 0),
-                ("Meena Devi", 55, "Female", "Widowed", "Mumbai", "Retired", 25000, 710, "N", "Y", "N", 4, 1, "Homemaker", "Y", 0),
-                ("Rahul Singh", 22, "Male", "Single", "Bangalore", "Student", 10000, 550, "Y", "N", "Y", 3, 0, "Student", "N", 0),
-            ],
-            start=1,
-        )
-    ]
 
 
 @pytest.fixture

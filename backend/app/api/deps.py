@@ -8,7 +8,6 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from app.core.config import get_settings
 from app.db.mongodb import MongoDB
 from app.db.repositories.campaign_repo import CampaignRepository
-from app.db.repositories.customer_repo import CustomerRepository
 from app.db.repositories.metrics_repo import MetricsRepository
 from app.db.repositories.segment_repo import SegmentRepository
 from app.db.repositories.variant_repo import VariantRepository
@@ -36,10 +35,6 @@ def get_campaign_repo(db: DBDep) -> CampaignRepository:
     return CampaignRepository(db)
 
 
-def get_customer_repo(db: DBDep) -> CustomerRepository:
-    return CustomerRepository(db)
-
-
 def get_variant_repo(db: DBDep) -> VariantRepository:
     return VariantRepository(db)
 
@@ -53,7 +48,6 @@ def get_segment_repo(db: DBDep) -> SegmentRepository:
 
 
 CampaignRepoDep = Annotated[CampaignRepository, Depends(get_campaign_repo)]
-CustomerRepoDep = Annotated[CustomerRepository, Depends(get_customer_repo)]
 VariantRepoDep = Annotated[VariantRepository, Depends(get_variant_repo)]
 MetricsRepoDep = Annotated[MetricsRepository, Depends(get_metrics_repo)]
 SegmentRepoDep = Annotated[SegmentRepository, Depends(get_segment_repo)]

@@ -21,8 +21,6 @@ class CampaignState(TypedDict):
 	campaign_id: str
 	campaign_brief: str
 	parsed_data: dict[str, Any]
-	customers: list[dict[str, Any]]
-	customer_count: int
 	segments: dict[str, list[str]]
 	strategy: dict[str, Any]
 	variants: list[dict[str, Any]]
@@ -59,8 +57,6 @@ class CampaignStateModel(BaseModel):
 	campaign_id: str = Field(..., min_length=1)
 	campaign_brief: str = Field(..., min_length=1)
 	parsed_data: dict[str, Any] = Field(default_factory=dict)
-	customers: list[dict[str, Any]] = Field(default_factory=list)
-	customer_count: int = Field(default=0, ge=0)
 	segments: dict[str, list[str]] = Field(default_factory=dict)
 	strategy: dict[str, Any] = Field(default_factory=dict)
 	variants: list[dict[str, Any]] = Field(default_factory=list)
@@ -99,8 +95,6 @@ def create_initial_campaign_state(campaign_id: str, campaign_brief: str) -> Camp
 		campaign_id=campaign_id,
 		campaign_brief=campaign_brief,
 		parsed_data={},
-		customers=[],
-		customer_count=0,
 		segments={},
 		strategy={},
 		variants=[],

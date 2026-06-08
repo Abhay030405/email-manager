@@ -8,7 +8,6 @@ from typing import Any, Optional
 
 from app.db.repositories.analytics_repo import AnalyticsRepository
 from app.db.repositories.campaign_repo import CampaignRepository
-from app.db.repositories.customer_repo import CustomerRepository
 from app.db.repositories.metric_aggregation_repo import MetricAggregationRepository
 from app.db.repositories.metrics_repo import MetricsRepository
 from app.models.analytics_snapshot import AnalyticsSnapshot
@@ -25,13 +24,11 @@ class PerformanceAnalysisService:
         metrics_repo: MetricsRepository,
         analytics_repo: AnalyticsRepository,
         aggregation_repo: MetricAggregationRepository,
-        customer_repo: CustomerRepository,
         campaign_repo: CampaignRepository,
     ) -> None:
         self.metrics_repo = metrics_repo
         self.analytics_repo = analytics_repo
         self.aggregation_repo = aggregation_repo
-        self.customer_repo = customer_repo
         self.campaign_repo = campaign_repo
 
     # ── Public API ─────────────────────────────────────────────────────────────

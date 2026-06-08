@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/select";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { CampaignProgressTracker } from "@/components/campaign/CampaignProgressTracker";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -191,6 +192,7 @@ const CampaignForm = () => {
   const [step, setStep] = useState(0);
   const [isAnalysing, setIsAnalysing] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [trackerCampaignId, setTrackerCampaignId] = useState<string | null>(null);
 
   // Brief
   const [brief, setBrief] = useState("");
@@ -374,22 +376,18 @@ const CampaignForm = () => {
       const campaign = await createRes.json();
       const campaignId: string = campaign.campaign_id;
 
-      // 2. Trigger AI workflow
-      const workflowRes = await fetch(`${API_BASE}/api/v1/campaigns/${campaignId}/run-workflow`, {
+      // 2. Start async AI workflow (returns immediately; poll /status for progress)
+      const startRes = await fetch(`${API_BASE}/api/v1/campaigns/${campaignId}/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
       });
-      if (!workflowRes.ok) {
-        const err = await workflowRes.json().catch(() => ({}));
-        throw new Error(err.detail ?? `Workflow failed (${workflowRes.status})`);
+      if (!startRes.ok) {
+        const err = await startRes.json().catch(() => ({}));
+        throw new Error(err.detail ?? `Workflow failed (${startRes.status})`);
       }
 
-      toast({ title: "Campaign created!", description: `Campaign ID: ${campaignId} — strategy is being generated.` });
-      // Reset form back to brief phase
-      setPhase("brief");
-      setStep(0);
-      setBrief("");
-      setUploadedFileName(null);
+      // Show progress tracker — it replaces the form until the pipeline finishes
+      setTrackerCampaignId(campaignId);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Something went wrong.";
       toast({ title: "Generation failed", description: message, variant: "destructive" });
@@ -397,6 +395,22 @@ const CampaignForm = () => {
       setIsGenerating(false);
     }
   };
+
+  // ── Progress tracker (replaces form while pipeline runs) ────────────────
+  if (trackerCampaignId) {
+    return (
+      <CampaignProgressTracker
+        campaignId={trackerCampaignId}
+        onFinished={() => {
+          setTrackerCampaignId(null);
+          setPhase("brief");
+          setStep(0);
+          setBrief("");
+          setUploadedFileName(null);
+        }}
+      />
+    );
+  }
 
   // ── Phase 3: Review ──────────────────────────────────────────────────────
   if (phase === "review") {

@@ -22,9 +22,11 @@
 
 ## System Overview
 
-CampaignX is an **LLM-powered multi-agent marketing automation platform**. A user submits a natural-language campaign brief; the system autonomously parses it, segments customers, devises a strategy, generates personalised email variants, waits for human approval, executes the campaign via a Mock Campaign API, monitors results, and iteratively optimises underperforming variants.
+CampaignX is an **LLM-powered multi-agent marketing automation platform**. A user submits a natural-language campaign brief; the system autonomously parses it, segments customers via the Mock Campaign API, devises a strategy, generates personalised email variants, waits for human approval, executes the campaign via a Mock Campaign API, monitors results, and iteratively optimises underperforming variants.
 
 The orchestration layer is built on **LangGraph** (state-machine graph), with each node delegating to a specialised **agent** that wraps an OpenAI LLM call with retry logic, Pydantic validation, structured logging, and deterministic fallbacks.
+
+> **Customer data is never stored in MongoDB.** All customer filtering and ID resolution is delegated to the Mock Campaign API via `POST /api/customers/filter`. The `customers` collection and the `fetch_customers` graph node have been removed.
 
 ---
 
@@ -74,22 +76,24 @@ The `/api/v1/campaigns/parse-brief` endpoint wraps the agent output into `Parsed
 
 **`target_audience`** — keyed by group label (e.g. `"Group 1"`, `"Group 2"`, …)
 
-Each group is an `AudienceGroup` object with 10 fields that map directly to Customer DB fields:
+Each group is an `AudienceGroup` object with 10 fields. These are sent as-is to the Mock API filter endpoint — no local customer data is loaded.
 
-| Field | Type | Filter applied to Customer DB |
-|-------|------|-------------------------------|
-| `min_age` | `int \| null` | `Age ≥ min_age` |
-| `max_age` | `int \| null` | `Age ≤ max_age` |
-| `gender` | `str \| null` | `Gender = "Male" \| "Female" \| "Other"` |
-| `min_income` | `int \| null` | `Monthly_Income ≥ min_income` |
-| `max_income` | `int \| null` | `Monthly_Income ≤ max_income` |
-| `KYC_status` | `str \| null` | `KYC_status = "Y" \| "N"` |
-| `App_Installed` | `str \| null` | `App_Installed = "Y" \| "N"` |
-| `Existing_Customer` | `str \| null` | `Existing_Customer = "Y" \| "N"` |
-| `Credit_score` | `int \| null` | `Credit_score ≥ Credit_score` (minimum threshold) |
-| `Social_Media_Active` | `str \| null` | `Social_Media_Active = "Y" \| "N"` |
+| Field | Type | Mock API filter field |
+|-------|------|-----------------------|
+| `min_age` | `int \| null` | `min_age` |
+| `max_age` | `int \| null` | `max_age` |
+| `gender` | `str \| null` | `gender` (sent as single-element array) |
+| `min_income` | `int \| null` | `min_monthly_income` |
+| `max_income` | `int \| null` | `max_monthly_income` |
+| `KYC_status` | `str \| null` | `kyc_status` |
+| `App_Installed` | `str \| null` | Sub-segmentation only — not sent in base filter |
+| `Existing_Customer` | `str \| null` | Sub-segmentation only — not sent in base filter |
+| `Credit_score` | `int \| null` | `min_credit_score` (minimum threshold) |
+| `Social_Media_Active` | `str \| null` | `social_media_active` |
 
-`null` means no filter applied for that field.
+`null` means the field is omitted from the filter request (Mock API returns all values).
+
+> The segmentation agent accepts **both** the PascalCase names above and their snake_case equivalents (`kyc_status`, `min_credit_score`, `social_media_active`, etc.) which the LLM brief parser may output. If `min_age > max_age` the values are silently swapped before the API call.
 
 **`campaign_goal`**
 
@@ -154,140 +158,111 @@ Each group is an `AudienceGroup` object with 10 fields that map directly to Cust
 
 ### 2. `CustomerSegmentationAgent`
 **File:** `backend/app/agents/segmentation.py`  
-**Purpose:** Reads the parser's `AudienceGroup` criteria directly, hard-filters the full customer pool (AND logic), then sub-segments the qualified pool by `App_Installed × Existing_Customer` status. **Pure Python — no LLM calls.**
+**Purpose:** Calls `POST /api/customers/filter` on the Mock API for each audience group, then sub-segments the returned IDs by `App_Installed × Existing_Customer` status using parallel filter calls. **No LLM calls. No local customer data.**
 
-> **Key design principle:** filters are derived exclusively from what the brief parser extracted.  
-> If an `AudienceGroup` field is `null`, **no filter is applied for that field** — all customer values are accepted.
+> **Key design principle:** no customer records are loaded or stored locally.  
+> All filtering is delegated to the Mock API. If an `AudienceGroup` field is `null`, it is simply omitted from the request body — the API returns all values for that field.
 
 ---
 
-#### Step 1 — Criteria Pre-computation
+#### Step 1 — Build Filter Request (`_build_filter_body`)
 
-For each audience group the agent pre-computes a `_GroupCriteria` object by reading the `AudienceGroup` dict directly:
+For each audience group, non-null fields are mapped to Mock API request body keys:
 
-| `AudienceGroup` field | Customer DB field evaluated |
+| `AudienceGroup` field | Mock API body field |
 |---|---|
-| `min_age` / `max_age` | `Age` (inclusive range) |
-| `gender` | `Gender` (exact match) |
-| `min_income` / `max_income` | `Monthly_Income` (range) |
-| `Credit_score` | `Credit_score ≥` (minimum threshold) |
-| `KYC_status` | `KYC_status` (exact match, `"Y"` or `"N"`) |
-| `Social_Media_Active` | `Social_Media_Active` (exact match) |
+| `min_age` / `max_age` | `min_age` / `max_age` (swapped if inverted) |
+| `gender` | `gender` (single-element array — OR logic) |
+| `min_income` / `max_income` | `min_monthly_income` / `max_monthly_income` |
+| `KYC_status` / `kyc_status` | `kyc_status` |
+| `Credit_score` / `min_credit_score` | `min_credit_score` |
+| `Social_Media_Active` / `social_media_active` | `social_media_active` |
 
-`App_Installed` and `Existing_Customer` are **excluded** from this step — they drive sub-segmentation in Step 2.
-
----
-
-#### Step 2 — Hard Filter (AND logic, pure Python)
-
-Each customer in the full pool is tested against all non-null criteria simultaneously:
-
-```
-customer qualifies  ⟺  ALL of the following are true:
-  min_age ≤ customer.Age ≤ max_age             (if age range specified)
-  customer.Gender = gender                     (if specified)
-  customer.Monthly_Income ≥ min_income         (if specified)
-  customer.Monthly_Income ≤ max_income         (if specified)
-  customer.Credit_score  ≥ Credit_score        (if specified)
-  customer.KYC_status     = KYC_status         (if specified)
-  customer.Social_Media_Active = Social_Media_Active (if specified)
-```
-
-Customers failing **any** active criterion are excluded. The result is the **qualified candidate pool**.
+Both PascalCase (from `AudienceGroup` model) and snake_case (from LLM output) are accepted for each field.  
+`App_Installed` / `Existing_Customer` are **excluded** from this body — they control the sub-segmentation API calls in Step 2.
 
 ---
 
-#### Step 3 — Sub-segmentation by App × Existing Customer
+#### Step 2 — Sub-segmentation by App × Existing Customer (parallel API calls)
 
-The qualified pool is split into named sub-segments based on `App_Installed` and `Existing_Customer` flags from the `AudienceGroup`:
+| Condition | API calls made | Segments produced |
+|---|---|---|
+| Both `null` (unspecified) | 3 parallel calls | `{prefix}_active` (App=Y + Existing=Y), `{prefix}_inactive` (App=N + Existing=Y), `{prefix}_dormant` (Existing=N) |
+| At least one specified | 1 call | Single segment with the specified filter values |
 
-| Condition | Segments created |
-|---|---|
-| Both `null` (unspecified) | 3 segments: `active` (App=Y + Existing=Y), `inactive` (Existing=Y, any App), `dormant` (Existing=N) |
-| At least one specified | 1 segment filtered to customers matching the specified value(s) |
-
-Each sub-segment gets a `targeting_priority` (1–5), `description`, and `applied_criteria` dict.
+All groups run **in parallel** across the graph via `asyncio.gather`. Each sub-segment call returns `{ count, customer_ids[] }` from the Mock API.
 
 ---
 
 #### Input
 
-Schema: `SegmentationInput`
-
-| Field | Type | Constraints | Description |
-|-------|------|-------------|-------------|
-| `customers` | `list[Customer]` | non-empty | Full customer list (unfiltered) from Mock API or MongoDB |
-| `target_audience` | `dict[str, AudienceGroup]` | non-empty | Group-keyed audience criteria extracted by the parser agent (e.g. `{"Group 1": {...}, "Group 2": {...}}`) |
-| `campaign_goal` | `str` | one of allowed | `awareness \| conversion \| retention \| engagement` (resolved from `parsed_data.campaign_goal.objective` via `_safe_goal()`) |
+| Field | Type | Description |
+|-------|------|-------------|
+| `target_audience` | `dict[str, AudienceGroup]` | Group-keyed audience criteria from the parser agent |
+| `campaign_goal` | `str` | `awareness \| conversion \| retention \| engagement` |
 
 ---
 
 #### Output
 
-Schema: `SegmentationResult`
-
 | Field | Type | Description |
 |-------|------|-------------|
-| `qualified_count` | `int` | Customers that passed all filters |
-| `total_count` | `int` | Total input customers before filtering |
-| `filter_applied` | `AudienceCriteria` | The resolved filter object (for audit/debug) |
-| `segments` | `list[SegmentOut]` | Ordered by `targeting_priority` descending |
-| `coverage_pct` | `float` | % of qualified customers assigned to ≥1 segment |
+| `segments` | `list[SegmentOut]` | All sub-segments across all groups |
+| `total_customers` | `int` | Fixed Mock API cohort size (5 000) |
+| `qualified_count` | `int` | Unique customer IDs across all segments |
+| `coverage_pct` | `float` | `qualified_count / 5000 × 100` |
 | `distribution` | `dict[str, int]` | `segment_name → customer_count` |
+| `groups_detail` | `list[dict]` | Per-group breakdown: `filter_applied`, `qualified_count`, `segments`, `coverage_pct` |
 
 Each `SegmentOut`:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `segment_name` | `str` | Snake_case name (e.g. `"salaried_metro_active"`) |
-| `description` | `str` | Why this segment matters for the campaign |
-| `customer_ids` | `list[str]` | IDs of customers in this segment |
+| `segment_name` | `str` | `{group_prefix}_{active\|inactive\|dormant\|app\|no_app\|existing\|prospect}` |
+| `description` | `str` | Human-readable segment summary |
+| `customer_ids` | `list[str]` | IDs returned by Mock API filter call |
 | `size` | `int` | Auto-synced from `len(customer_ids)` |
-| `targeting_priority` | `int` | 1–5 (5 = highest priority) |
-| `recommended_approach` | `str` | 1–2 sentence tactical guidance |
-| `applied_criteria` | `dict` | Which DB fields were filtered to define this sub-segment |
+| `targeting_priority` | `int` | 1–5 (5 = highest; active existing = 5) |
+| `recommended_approach` | `str` | Tactical messaging guidance |
+| `applied_criteria` | `dict` | Exact filter body sent for this sub-segment |
 
 **Example output:**
 ```json
 {
-  "qualified_count": 1247,
-  "total_count": 5000,
-  "filter_applied": {
-    "age_min": 25, "age_max": 45,
-    "min_income": 50000,
-    "kyc_status": "Y"
-  },
   "segments": [
     {
-      "segment_name": "Group_1_app_existing",
-      "description": "Qualified customers aged 25–45 with app installed and existing relationship",
-      "customer_ids": ["CUST0042", "CUST0107", "..."],
-      "size": 612,
+      "segment_name": "group_1_active",
+      "description": "Active customers — app installed + existing relationship",
+      "customer_ids": ["CUST0042", "CUST0107"],
+      "size": 22,
       "targeting_priority": 5,
-      "recommended_approach": "Lead with ROI and trust messaging. Subject line urgency works well.",
-      "applied_criteria": {"Existing_Customer": "Y", "App_Installed": "Y"}
+      "recommended_approach": "Lead with loyalty and retention messaging. Upsell focus.",
+      "applied_criteria": {"min_age": 25, "max_age": 45, "kyc_status": "Y", "App_Installed": "Y", "Existing_Customer": "Y"}
     },
     {
-      "segment_name": "Group_1_no_app_existing",
+      "segment_name": "group_1_inactive",
       "description": "Existing customers without the app — re-engagement opportunity",
-      "customer_ids": ["CUST0201", "..."],
-      "size": 385,
-      "targeting_priority": 4,
-      "recommended_approach": "Drive app download first, then product sign-up.",
-      "applied_criteria": {"Existing_Customer": "Y", "App_Installed": "N"}
+      "customer_ids": ["CUST0201"],
+      "size": 26,
+      "targeting_priority": 3,
+      "recommended_approach": "Drive app install with benefit-led messaging.",
+      "applied_criteria": {"min_age": 25, "max_age": 45, "kyc_status": "Y", "App_Installed": "N", "Existing_Customer": "Y"}
     },
     {
-      "segment_name": "Group_1_prospect",
-      "description": "Qualified prospects not yet customers — high acquisition potential",
-      "customer_ids": ["CUST0301", "..."],
-      "size": 250,
-      "targeting_priority": 3,
-      "recommended_approach": "Welcome/introductory framing. Emphasise sign-up simplicity.",
-      "applied_criteria": {"Existing_Customer": "N"}
+      "segment_name": "group_1_dormant",
+      "description": "Non-customers — acquisition focus",
+      "customer_ids": ["CUST0301"],
+      "size": 48,
+      "targeting_priority": 4,
+      "recommended_approach": "Welcome framing. Emphasise simplicity of sign-up.",
+      "applied_criteria": {"min_age": 25, "max_age": 45, "kyc_status": "Y", "Existing_Customer": "N"}
     }
   ],
-  "coverage_pct": 100.0,
-  "distribution": {"Group_1_app_existing": 612, "Group_1_no_app_existing": 385, "Group_1_prospect": 250}
+  "total_customers": 5000,
+  "qualified_count": 96,
+  "coverage_pct": 1.9,
+  "distribution": {"group_1_active": 22, "group_1_inactive": 26, "group_1_dormant": 48},
+  "groups_detail": [...]
 }
 ```
 
@@ -295,28 +270,12 @@ Each `SegmentOut`:
 
 #### Internal Steps
 
-1. **Pure Python — no LLM calls** (temperature `0.0`)
-2. **Step 1 — Pre-compute `_GroupCriteria`** per audience group: reads `AudienceGroup` dict fields directly
-3. **Step 2 — Hard filter** (AND logic): iterates all customers; retains only those satisfying every non-null criterion
-4. **Step 3 — Sub-segmentation**: splits qualified pool by `App_Installed × Existing_Customer` — 3-way split when both are unspecified, single filtered segment when at least one is specified
-5. All groups run **in parallel** via `asyncio.gather`
-6. **Fallback:** if no customers qualify for a group, produces a zero-size `general_audience` segment with a logged warning
-7. **Segments persisted to MongoDB** (`segments` collection)
-
----
-
-#### Customer DB Fields Used for Filtering
-
-| DB Field | Criterion | AudienceGroup field |
-|---|---|---|
-| `Age` | `≥ min_age` and `≤ max_age` | `min_age`, `max_age` |
-| `Gender` | exact match | `gender` |
-| `Monthly_Income` | `≥ min_income` and `≤ max_income` | `min_income`, `max_income` |
-| `Credit_score` | `≥ Credit_score` (minimum threshold) | `Credit_score` |
-| `KYC_status` | exact match (`"Y"` / `"N"`) | `KYC_status` |
-| `Social_Media_Active` | exact match (`"Y"` / `"N"`) | `Social_Media_Active` |
-| `App_Installed` | sub-segmentation only | `App_Installed` |
-| `Existing_Customer` | sub-segmentation only | `Existing_Customer` |
+1. **No LLM calls** (temperature `0.0`); no local customer data loaded
+2. All groups processed **in parallel** via `asyncio.gather`
+3. Per group: `_build_filter_body()` maps criteria → Mock API body; `_first_set()` resolves dual PascalCase / snake_case keys
+4. Sub-segmentation fires 3 parallel filter calls (or 1 if App/Existing specified); each call uses `asyncio.run_in_executor` to wrap the synchronous `MockCampaignClient`
+5. **Coverage** calculated as `unique_customer_ids / 5000` (fixed Mock API cohort)
+6. **Fallback:** if `target_audience` is empty or not a dict → single `general_audience` segment with empty `customer_ids`
 
 ---
 
@@ -602,20 +561,13 @@ START
 └──────┬──────┘
        │
   ▼
-┌──────────────────┐
-│ fetch_customers  │  MockCampaignClient (paginated)
-│                  │  IN:  —
-│                  │  OUT: customers[], customer_count
-│                  │  FALLBACK: MongoDB CustomerRepository
-└────────┬─────────┘
-         │
-  ▼
 ┌───────────────┐
 │ segmentation  │  CustomerSegmentationAgent
-│               │  IN:  customers[], target_audience, campaign_goal
+│               │  IN:  target_audience, campaign_goal
 │               │  OUT: segments {name→ids}, checkpoint_data.segments_detail
+│               │  CALLS: POST /api/customers/filter (Mock API, parallel)
 │               │  PERSISTS: Segment docs to MongoDB
-│               │  FALLBACK: age/activity buckets
+│               │  FALLBACK: general_audience placeholder segment
 └──────┬────────┘
        │
   ▼
@@ -675,8 +627,6 @@ START
 | `campaign_id` | `str` | Initial state |
 | `campaign_brief` | `str` | Initial state |
 | `parsed_data` | `dict` | Pre-populated from user-confirmed form (`POST /campaigns`); merged with LLM re-extraction in `parse_brief` node — user values win |
-| `customers` | `list[dict]` | `fetch_customers` node |
-| `customer_count` | `int` | `fetch_customers` node |
 | `segments` | `dict[str, list[str]]` | `segmentation` node |
 | `strategy` | `dict` | `strategy` node |
 | `variants` | `list[dict]` | `content_generation` node |
@@ -687,8 +637,7 @@ START
 | `customer_results` | `list` | Reserved for monitoring |
 | `optimization_suggestions` | `list` | Reserved for optimization |
 | `error_messages` | `list[str]` | Any failing node |
-| `checkpoint_data` | `dict` | Cross-node transient data |
-| `mock_api_errors` | `list[dict]` | `fetch_customers` node |
+| `checkpoint_data` | `dict` | Cross-node transient data (includes `segments_detail`) |
 
 #### Error Handling Per Node
 
@@ -772,12 +721,13 @@ START
 |------------|-------|----------|
 | `campaigns` | `Campaign` | Campaign document with `parsed_data`, `status`, `segments` (name list) |
 | `campaign_variants` | `CampaignVariant` | Email variant per segment — `subject_line`, `email_body`, `variant_id`, `mock_campaign_id` |
-| `customers` | `Customer` | 18-field customer records synced from Mock API |
-| `segments` | `Segment` | Rich segment documents — `customer_ids`, `segment_criteria` (`age_range`, `gender`, `min_income`, `max_income`, `min_credit_score`, `app_installed`, `social_media_active`, `existing_customer`), `description`, `size` |
+| `segments` | `Segment` | Rich segment documents — `customer_ids` (from Mock API), `segment_criteria`, `description`, `size` |
 | `metrics` | `Metrics` | Variant performance — `open_rate`, `click_rate`, `click_through_rate` (stored 0–1) |
 | `workflow_states` | `CampaignStateModel` | Full `CampaignState` snapshot per campaign |
 | `workflow_checkpoints` | — | State snapshot before each node attempt |
 | `execution_logs` | `ExecutionLog` | Per-variant execution records (SUCCESS / FAILED / SKIPPED) |
+
+> The `customers` collection has been removed. Customer IDs are fetched on-demand from the Mock API at segmentation time and stored in `segments.customer_ids`.
 
 ### What lives where
 
@@ -815,16 +765,15 @@ campaign_variants         ← EmailContent output, one doc per variant per segme
 │   /api/v1/segments     │           │                                       │
 │   /api/v1/variants     │           │  ┌──────────────────────────────────┐ │
 │   /api/v1/metrics      │           │  │         CampaignState            │ │
-│   /api/v1/approval     │           │  │  (18 fields, persisted after     │ │
+│   /api/v1/approval     │           │  │  (16 fields, persisted after     │ │
 └────────┬───────────────┘           │  │   every node)                    │ │
          │                           │  └──────────────────────────────────┘ │
          ▼                           │                                       │
-┌────────────────────────┐           │  parse_brief ──► fetch_customers      │
-│      MongoDB           │◄──────────│       ──► segmentation                │
-│                        │           │       ──► strategy                    │
-│  campaigns             │           │       ──► content_generation          │
-│  campaign_variants     │           │       ──► approval                    │
-│  customers             │           │       ──► [wait / reject / execute]   │
+┌────────────────────────┐           │  parse_brief ──► segmentation         │
+│      MongoDB           │◄──────────│       ──► strategy                    │
+│                        │           │       ──► content_generation          │
+│  campaigns             │           │       ──► approval                    │
+│  campaign_variants     │           │       ──► [wait / reject / execute]   │
 │  segments              │           │                                       │
 │  metrics               │           │  Optimization Loop (separate graph):  │
 │  workflow_states       │           │  collect_metrics ──► identify_poor    │
@@ -862,7 +811,7 @@ campaign_variants         ← EmailContent output, one doc per variant per segme
                                      │    Mock Campaign API         │
                                      │  (mock-campaign-api.onrender)│
                                      │                              │
-                                     │  GET  /api/customers         │
+                                     │  POST /api/customers/filter  │ ← segmentation
                                      │  GET  /api/customers/count   │
                                      │  POST /api/customers/validate│
                                      │  POST /api/campaigns/schedule│
@@ -895,11 +844,13 @@ No created_by field — campaigns are system-owned.
     ▼  parse_brief node — CampaignBriefParserAgent (re-runs on brief)
       Merges LLM output with user-confirmed parsed_data (user values win)
     │
-    │  + All customers from Mock API (5,000 records) or MongoDB cache
-    ▼  segmentation node — CustomerSegmentationAgent (pure Python, no LLM)
-      Step 1: Reads AudienceGroup fields directly → _GroupCriteria per group
-      Step 2: Hard filter (AND logic) → qualified candidate pool per group
-      Step 3: Sub-segmentation by App_Installed × Existing_Customer → named segments with customer_ids, priority
+    ▼  segmentation node — CustomerSegmentationAgent (no LLM, no local customer data)
+      Step 1: _build_filter_body() maps AudienceGroup fields → Mock API request body
+              (handles both PascalCase and snake_case keys; swaps inverted min/max age)
+      Step 2: POST /api/customers/filter × 3 parallel calls per group
+              (active: App=Y+Existing=Y, inactive: App=N+Existing=Y, dormant: Existing=N)
+              OR 1 call if App_Installed / Existing_Customer explicitly specified
+      Result: named segments with customer_ids[], targeting_priority, coverage_pct
     │
     ▼  strategy node — CampaignStrategyAgent
       campaign_goal.objective resolved to enum via _safe_goal()

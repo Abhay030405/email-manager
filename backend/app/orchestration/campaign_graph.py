@@ -10,13 +10,11 @@ from typing import Any, Awaitable, Callable
 
 from app.db.mongodb import MongoDB
 from app.db.repositories.campaign_repo import CampaignRepository
-from app.db.repositories.customer_repo import CustomerRepository
 from app.db.repositories.segment_repo import SegmentRepository
 from app.models.segment import Segment
 from app.db.repositories.variant_repo import VariantRepository
 from app.external.mock_campaign_client import MockCampaignClient, MockCampaignAPIError
 from app.models.campaign import CampaignStatus
-from app.models.customer import Customer
 from app.models.variant import CampaignVariant, VariantStatus
 from app.orchestration.state import CampaignState, StateManager, create_initial_campaign_state
 
@@ -31,7 +29,6 @@ except ImportError:  # pragma: no cover - compatibility fallback
 logger = logging.getLogger(__name__)
 
 MAX_RETRIES = 3
-MOCK_API_PAGE_SIZE = 100  # customers per page when paginating Mock API
 
 # Optional agent class references. These are lazily imported to avoid hard
 # import-time coupling to provider-specific LangChain packages.
@@ -145,54 +142,18 @@ def _fallback_parse_brief(state: CampaignState) -> CampaignState:
 
 
 def _fallback_segmentation(state: CampaignState) -> CampaignState:
-	"""Fallback segmentation based on age/activity buckets."""
+	"""Fallback: create a placeholder segment when the segmentation agent fails."""
 	next_state = CampaignState(**dict(state))
-	customers = next_state.get("customers", [])
-	segments: dict[str, list[str]] = {
-		"active_customers": [],
-		"inactive_customers": [],
-		"seniors": [],
-	}
-	for customer in customers:
-		cid = customer.get("customer_id")
-		if not cid:
-			continue
-		# Customer dicts use PascalCase field names (model_dump() output)
-		existing = str(customer.get("Existing_Customer", "N")).upper()
-		app = str(customer.get("App_Installed", "N")).upper()
-		age = int(customer.get("Age", 0) or 0)
-		if existing == "Y" and app == "Y":
-			segments["active_customers"].append(cid)
-		else:
-			segments["inactive_customers"].append(cid)
-		if age >= 50:
-			segments["seniors"].append(cid)
-
-	filtered_segments = {name: ids for name, ids in segments.items() if ids}
-
-	# When no customers are available (empty DB + Mock API unavailable), create a
-	# placeholder segment so downstream nodes (strategy, content_gen) can proceed.
-	if not filtered_segments:
-		logger.warning(
-			"_fallback_segmentation: no customers available — creating placeholder 'general_audience' segment"
-		)
-		filtered_segments = {
-			"general_audience": []
-		}
-
-	next_state["segments"] = filtered_segments
+	next_state["segments"] = {"general_audience": []}
 	checkpoint_data = dict(next_state.get("checkpoint_data", {}))
-	checkpoint_data["segments_detail"] = [
-		{
-			"segment_name": name,
-			"description": f"Fallback segment: {name}" if ids else "General audience — no customer data available",
-			"customer_ids": ids,
-			"size": len(ids),
-			"targeting_priority": 3,
-			"recommended_approach": "Use broad, benefits-driven messaging.",
-		}
-		for name, ids in filtered_segments.items()
-	]
+	checkpoint_data["segments_detail"] = [{
+		"segment_name": "general_audience",
+		"description": "General audience — filter API unavailable",
+		"customer_ids": [],
+		"size": 0,
+		"targeting_priority": 1,
+		"recommended_approach": "Use broad, benefit-led messaging.",
+	}]
 	next_state["checkpoint_data"] = checkpoint_data
 	return next_state
 
@@ -282,6 +243,21 @@ async def _execute_node_with_retries(
 	for attempt in range(1, MAX_RETRIES + 1):
 		try:
 			await manager.create_checkpoint(state, current_node=node_name)
+
+			# Update Campaign document so GET /status can surface which node is running
+			try:
+				_repo = CampaignRepository(MongoDB.get_db())
+				_campaign = await _repo.find_by_id(state["campaign_id"])
+				if _campaign and _campaign.status == CampaignStatus.DRAFT:
+					await _repo.update_status(state["campaign_id"], CampaignStatus.RUNNING)
+				await _repo.update_step(state["campaign_id"], node_name)
+			except Exception as _step_exc:
+				logger.warning(
+					"Failed to update current_step for %s: %s",
+					state.get("campaign_id"),
+					_step_exc,
+				)
+
 			next_state = await operation(CampaignState(**dict(state)))
 			if not manager.validate_state(next_state):
 				raise ValueError(f"State validation failed at node={node_name}")
@@ -377,87 +353,6 @@ async def parse_brief_node(state: CampaignState) -> CampaignState:
 	)
 
 
-async def fetch_customers_node(state: CampaignState) -> CampaignState:
-	"""Fetch customer cohort from Mock Campaign API with pagination, fall back to MongoDB cache."""
-
-	async def _op(current_state: CampaignState) -> CampaignState:
-		client = MockCampaignClient()
-		next_state = CampaignState(**dict(current_state))
-		mock_api_errors: list[dict[str, Any]] = list(next_state.get("mock_api_errors", []))
-
-		try:
-			# Get total count (handles cold start via built-in retry)
-			total_count = await asyncio.get_event_loop().run_in_executor(
-				None, client.get_customer_count
-			)
-			logger.info("Mock API customer count: %d", total_count)
-
-			# Paginate through all customers
-			all_customers: list[dict[str, Any]] = []
-			offset = 0
-			while offset < total_count:
-				batch = await call_mock_api_with_retry(
-					lambda o=offset: client.get_customers(limit=MOCK_API_PAGE_SIZE, offset=o)
-				)
-				if not batch:
-					break
-				all_customers.extend(batch)
-				offset += len(batch)
-				if len(batch) < MOCK_API_PAGE_SIZE:
-					break
-
-			if not all_customers:
-				logger.warning(
-					"fetch_customers: Mock API returned 0 customers — falling back to MongoDB cache"
-				)
-				repo = CustomerRepository(MongoDB.get_db())
-				cached = await repo.find_all(limit=10_000)
-				next_state["customers"] = [c.model_dump() for c in cached]
-				next_state["customer_count"] = len(next_state["customers"])
-				if not cached:
-					logger.warning(
-						"fetch_customers: MongoDB cache also empty — run: python scripts/seed_database.py"
-					)
-			else:
-				logger.info("Fetched %d customers from Mock API", len(all_customers))
-
-				# Cache to MongoDB
-				repo = CustomerRepository(MongoDB.get_db())
-				customers_to_sync = []
-				for raw in all_customers:
-					try:
-						customers_to_sync.append(Customer.from_mock_api(raw))
-					except Exception as parse_exc:
-						logger.debug("Skipping invalid customer record: %s", parse_exc)
-				if customers_to_sync:
-					await repo.sync_from_mock_api(customers_to_sync)
-
-				next_state["customers"] = all_customers
-				next_state["customer_count"] = len(all_customers)
-
-		except Exception as exc:
-			# Fall back to MongoDB cache
-			logger.warning("Mock API customer fetch failed (%s), using MongoDB cache", exc)
-			mock_api_errors.append({
-				"node": "fetch_customers",
-				"error": str(exc),
-				"timestamp": _now_iso(),
-			})
-			repo = CustomerRepository(MongoDB.get_db())
-			cached = await repo.find_all(limit=10_000)
-			next_state["customers"] = [c.model_dump() for c in cached]
-			next_state["customer_count"] = len(next_state["customers"])
-			if not cached:
-				logger.warning(
-					"fetch_customers: MongoDB cache also empty — run: python scripts/seed_database.py"
-				)
-
-		next_state["mock_api_errors"] = mock_api_errors
-		return next_state
-
-	return await _execute_node_with_retries("fetch_customers", state, _op)
-
-
 _GENERAL_AUDIENCE = "General audience"
 
 
@@ -491,13 +386,7 @@ async def segmentation_node(state: CampaignState) -> CampaignState:
 			agent,
 			"segment_customers",
 			"execute",
-			(
-				current_state.get("customers", []),
-				parsed_data,
-			)
-			if hasattr(agent, "segment_customers")
-			else {
-				"customers": current_state.get("customers", []),
+			{
 				"target_audience": parsed_data.get("target_audience", {}),
 				"campaign_goal": _safe_goal(parsed_data.get("campaign_goal")),
 			},
@@ -551,6 +440,8 @@ async def segmentation_node(state: CampaignState) -> CampaignState:
 				segment_name=entry.get("segment_name", ""),
 				description=entry.get("description", ""),
 				customer_ids=entry.get("customer_ids", []),
+				targeting_priority=entry.get("targeting_priority", 3),
+				recommended_approach=entry.get("recommended_approach", ""),
 			)
 			await segment_repo.create(seg)
 
@@ -858,7 +749,6 @@ def create_campaign_graph() -> Any:
 	graph = StateGraph(CampaignState)
 
 	graph.add_node("parse_brief", parse_brief_node)
-	graph.add_node("fetch_customers", fetch_customers_node)
 	graph.add_node("segmentation", segmentation_node)
 	graph.add_node("strategy", strategy_node)
 	graph.add_node("content_generation", content_generation_node)
@@ -867,8 +757,7 @@ def create_campaign_graph() -> Any:
 	graph.add_node("execution", execution_node)
 
 	graph.add_edge(START, "parse_brief")
-	graph.add_edge("parse_brief", "fetch_customers")
-	graph.add_edge("fetch_customers", "segmentation")
+	graph.add_edge("parse_brief", "segmentation")
 	graph.add_edge("segmentation", "strategy")
 	graph.add_edge("strategy", "content_generation")
 	graph.add_edge("content_generation", "approval")
@@ -894,12 +783,28 @@ async def run_campaign_workflow(campaign_id: str, campaign_brief: str) -> dict[s
 	await manager.save_state(initial_state, campaign_id)
 
 	graph = create_campaign_graph()
-	final_state = await graph.ainvoke(initial_state, config={"recursion_limit": 50})
+	try:
+		final_state = await graph.ainvoke(initial_state, config={"recursion_limit": 50})
+	except Exception as exc:
+		try:
+			_repo = CampaignRepository(MongoDB.get_db())
+			await _repo.update_status(campaign_id, CampaignStatus.DRAFT)
+			await _repo.clear_step(campaign_id)
+		except Exception as _db_exc:
+			logger.warning("Failed to reset campaign status after workflow error: %s", _db_exc)
+		raise exc
 
 	if not isinstance(final_state, dict):
 		raise ValueError("Campaign workflow returned non-dict state")
 
 	await manager.save_state(CampaignState(**final_state), campaign_id)
+
+	try:
+		_repo = CampaignRepository(MongoDB.get_db())
+		await _repo.clear_step(campaign_id)
+	except Exception as _db_exc:
+		logger.warning("Failed to clear current_step after workflow completion: %s", _db_exc)
+
 	return final_state
 
 
@@ -919,7 +824,6 @@ async def recover_workflow(campaign_id: str, checkpoint_id: str) -> dict[str, An
 
 	ordered_nodes: list[tuple[str, Callable[[CampaignState], Awaitable[CampaignState]]]] = [
 		("parse_brief", parse_brief_node),
-		("fetch_customers", fetch_customers_node),
 		("segmentation", segmentation_node),
 		("strategy", strategy_node),
 		("content_generation", content_generation_node),

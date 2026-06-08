@@ -5,7 +5,7 @@ Updated for Mock Campaign API integration — customer fields match the
 """
 
 from datetime import datetime
-from typing import Any, Literal, Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
@@ -13,98 +13,6 @@ from app.models.campaign import CampaignStatus, ParsedData
 from app.models.metrics import Metrics
 from app.models.segment import SegmentCriteria
 from app.models.variant import VariantStatus
-
-
-# ── Customer Schemas ──────────────────────────────────────────────
-
-class CustomerCreate(BaseModel):
-    customer_id: str = Field(..., pattern=r"^CUST\d{4}$")
-    Full_name: str = Field(..., min_length=1)
-    email: str
-    Age: int = Field(..., ge=0, le=120)
-    Gender: Literal["Male", "Female", "Other"]
-    Marital_Status: Literal["Married", "Single", "Divorced", "Widowed"] = "Single"
-    Family_Size: int = Field(1, ge=1, le=10)
-    Dependent_count: int = Field(0, ge=0, alias="Dependent count")
-    Occupation: str = ""
-    Occupation_type: Literal[
-        "Full-time", "Part-time", "Self-employed", "Retired", "Student"
-    ] = Field("Full-time", alias="Occupation type")
-    Monthly_Income: float = Field(0, ge=0)
-    KYC_status: Literal["Y", "N"] = Field("N", alias="KYC status")
-    City: str = ""
-    Kids_in_Household: int = Field(0, ge=0)
-    App_Installed: Literal["Y", "N"] = "N"
-    Existing_Customer: Literal["Y", "N"] = Field("N", alias="Existing Customer")
-    Credit_score: int = Field(300, ge=300, le=850)
-    Social_Media_Active: Literal["Y", "N"] = "N"
-
-    model_config = {
-        "populate_by_name": True,
-        "json_schema_extra": {
-            "examples": [
-                {
-                    "customer_id": "CUST0001",
-                    "Full_name": "Ravi Sharma",
-                    "email": "ravi.sharma@example.com",
-                    "Age": 32,
-                    "Gender": "Male",
-                    "Marital_Status": "Married",
-                    "City": "Mumbai",
-                    "Monthly_Income": 75000.0,
-                    "Credit_score": 720,
-                    "App_Installed": "Y",
-                    "Social_Media_Active": "Y",
-                }
-            ]
-        },
-    }
-
-
-class CustomerUpdate(BaseModel):
-    Full_name: Optional[str] = None
-    email: Optional[str] = None
-    Age: Optional[int] = Field(None, ge=0, le=120)
-    Gender: Optional[Literal["Male", "Female", "Other"]] = None
-    Marital_Status: Optional[Literal["Married", "Single", "Divorced", "Widowed"]] = None
-    Family_Size: Optional[int] = Field(None, ge=1, le=10)
-    Dependent_count: Optional[int] = Field(None, ge=0)
-    Occupation: Optional[str] = None
-    Occupation_type: Optional[
-        Literal["Full-time", "Part-time", "Self-employed", "Retired", "Student"]
-    ] = None
-    Monthly_Income: Optional[float] = Field(None, ge=0)
-    KYC_status: Optional[Literal["Y", "N"]] = None
-    City: Optional[str] = None
-    Kids_in_Household: Optional[int] = Field(None, ge=0)
-    App_Installed: Optional[Literal["Y", "N"]] = None
-    Existing_Customer: Optional[Literal["Y", "N"]] = None
-    Credit_score: Optional[int] = Field(None, ge=300, le=850)
-    Social_Media_Active: Optional[Literal["Y", "N"]] = None
-
-
-class CustomerResponse(BaseModel):
-    customer_id: str
-    Full_name: str
-    email: str
-    Age: int
-    Gender: str
-    Marital_Status: str
-    Family_Size: int
-    Dependent_count: int
-    Occupation: str
-    Occupation_type: str
-    Monthly_Income: float
-    KYC_status: str
-    City: str
-    Kids_in_Household: int
-    App_Installed: str
-    Existing_Customer: str
-    Credit_score: int
-    Social_Media_Active: str
-    synced_from_mock_api: bool
-    created_at: datetime
-    updated_at: datetime
 
 
 # ── Campaign Schemas ──────────────────────────────────────────────
@@ -268,23 +176,65 @@ class SegmentCreate(BaseModel):
     campaign_id: str
     segment_name: str
     description: str = ""
-    customer_ids: list[str] = Field(default_factory=list)
     segment_criteria: SegmentCriteria = Field(default_factory=SegmentCriteria)
+
+
+class SegmentItemInput(BaseModel):
+    """A single segment entry as produced by CustomerSegmentationAgent."""
+
+    segment_name: str
+    description: str = ""
+    customer_ids: list[str] = Field(default_factory=list)
+    size: int = 0
+    targeting_priority: int = Field(1, ge=1, le=5)
+    recommended_approach: str = ""
+    applied_criteria: dict = Field(default_factory=dict)
+
+
+class SegmentBulkCreateRequest(BaseModel):
+    """Request body for POST /api/v1/segments.
+
+    Pass the campaign_id together with the full output of
+    CustomerSegmentationAgent.  One Segment document is created per entry
+    in the segments list.
+    """
+
+    campaign_id: str
+    segments: list[SegmentItemInput]
+    total_customers: int = 5000
+    qualified_count: int = 0
+    coverage_pct: float = 0.0
+    distribution: dict[str, int] = Field(default_factory=dict)
 
     model_config = {
         "json_schema_extra": {
             "examples": [
                 {
-                    "campaign_id": "c-001",
-                    "segment_name": "young_urban_males",
-                    "description": "Male customers aged 20-35 in metro cities",
-                    "customer_ids": ["CUST0001", "CUST0005"],
-                    "segment_criteria": {
-                        "age_range": {"min": 20, "max": 35},
-                        "gender": ["Male"],
-                        "min_income": 30000,
-                        "app_installed": "Y",
-                    },
+                    "campaign_id": "camp-001",
+                    "segments": [
+                        {
+                            "segment_name": "group_1_active",
+                            "description": "Active customers — app installed + existing relationship",
+                            "customer_ids": ["CUST0001", "CUST0002"],
+                            "size": 2,
+                            "targeting_priority": 5,
+                            "recommended_approach": "Lead with loyalty and retention messaging.",
+                            "applied_criteria": {"min_age": 25, "kyc_status": "Y", "App_Installed": "Y", "Existing_Customer": "Y"},
+                        },
+                        {
+                            "segment_name": "group_1_dormant",
+                            "description": "Non-customers — acquisition focus",
+                            "customer_ids": ["CUST0010"],
+                            "size": 1,
+                            "targeting_priority": 4,
+                            "recommended_approach": "Welcome framing.",
+                            "applied_criteria": {"min_age": 25, "kyc_status": "Y", "Existing_Customer": "N"},
+                        },
+                    ],
+                    "total_customers": 5000,
+                    "qualified_count": 3,
+                    "coverage_pct": 0.06,
+                    "distribution": {"group_1_active": 2, "group_1_dormant": 1},
                 }
             ]
         }
@@ -375,16 +325,14 @@ class ParsedBriefSchema(BaseModel):
 class SegmentationInputSchema(BaseModel):
     """API-level input for the CustomerSegmentationAgent."""
 
-    customers: list[CustomerResponse] = Field(..., description="Customer list to segment")
-    target_audience: str = Field(..., min_length=1, description="Target audience from parsed brief")
+    target_audience: dict = Field(..., description="Audience groups from parsed brief")
     campaign_goal: str = Field(..., description="One of: awareness | conversion | retention | engagement")
 
     model_config = {
         "json_schema_extra": {
             "examples": [
                 {
-                    "customers": [],
-                    "target_audience": "Active users aged 20-40",
+                    "target_audience": {"Group 1": {"min_age": 25, "max_age": 45, "gender": "Male"}},
                     "campaign_goal": "conversion",
                 }
             ]

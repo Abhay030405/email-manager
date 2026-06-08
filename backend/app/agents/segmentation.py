@@ -1,17 +1,17 @@
-"""CustomerSegmentationAgent — pure-Python, multi-group parallel segmentation.
+"""CustomerSegmentationAgent — Mock API-backed multi-group parallel segmentation.
 
 Flow per group (runs in parallel across all groups via asyncio.gather):
-  Step 2 — Hard filter:
-    Apply all group criteria EXCEPT App_Installed / Existing_Customer (AND logic).
-    Return eligible customers + pass App_Installed / Existing_Customer through for Step 3.
+  Step 1 — API filter:
+    Call POST /api/customers/filter with all group criteria EXCEPT
+    App_Installed / Existing_Customer. Returns customer_ids directly.
 
-  Step 3 — Sub-segmentation by App_Installed × Existing_Customer:
-    Both null  → 3 segments: active (App=Y + Existing=Y),
-                              inactive (Existing=Y, any app),
-                              dormant (Existing=N)
-    ≥1 specified → 1 segment filtered to only the matching customers.
+  Step 2 — Sub-segmentation by App_Installed × Existing_Customer:
+    Both null  → 3 API calls: active (App=Y + Existing=Y),
+                               inactive (Existing=Y, App=N),
+                               dormant (Existing=N)
+    ≥1 specified → 1 API call with app_installed/existing_customer added.
 
-No LLM calls — all logic is deterministic Python.
+No LLM calls — all logic is deterministic.
 """
 
 from __future__ import annotations
@@ -23,6 +23,12 @@ from typing import Any
 from pydantic import BaseModel, Field, model_validator
 
 from app.agents.base_agent import BaseAgent
+from app.external.mock_campaign_client import MockCampaignClient
+
+logger = logging.getLogger(__name__)
+
+# Total customers in the Mock API cohort — used for coverage calculations.
+_MOCK_TOTAL_CUSTOMERS = 5000
 
 
 # ── Shared output schema (imported by strategy.py and content_gen.py) ─────────
@@ -43,177 +49,90 @@ class SegmentOut(BaseModel):
         self.size = len(self.customer_ids)
         return self
 
-logger = logging.getLogger(__name__)
 
-# ── City normalisation ────────────────────────────────────────────────────────
+# ── AudienceGroup → filter API field mapping ─────────────────────────────────
 
-_CITY_ALIASES: dict[str, str] = {
-    "bengaluru": "bangalore",
-    "bengalur":  "bangalore",
-    "new delhi": "delhi",
-    "calcutta":  "kolkata",
-    "bombay":    "mumbai",
-}
-
-
-def _normalize_city(city: str) -> str:
-    lower = city.lower().strip()
-    return _CITY_ALIASES.get(lower, lower)
+def _first_set(group: dict, *keys: str) -> Any:
+    """Return the first non-None value found in *group* under any of *keys*."""
+    for k in keys:
+        v = group.get(k)
+        if v is not None:
+            return v
+    return None
 
 
-def _city_matches(customer_city: str, allowed: list[str]) -> bool:
-    cc = _normalize_city(customer_city)
-    return any(_normalize_city(c) == cc for c in allowed)
+def _build_filter_body(
+    group: dict,
+    *,
+    app_installed: str | None = None,
+    existing_customer: str | None = None,
+) -> dict[str, Any]:
+    """Map AudienceGroup fields to the POST /api/customers/filter request body.
 
-
-def _parse_cities(city_raw: str | None) -> list[str] | None:
-    """Parse a city string into a list of city names.
-
-    Returns None (= no filter) when the string is empty or expresses
-    'any city' / 'all cities' / tier-based broad catchments.
+    Accepts both PascalCase keys (AudienceGroup model) and snake_case keys
+    (LLM brief-parser output). app_installed / existing_customer are passed
+    separately and override any value in the group dict.
     """
-    if not city_raw:
-        return None
-    lower = city_raw.lower()
-    if "any" in lower or "all " in lower:
-        return None
+    body: dict[str, Any] = {}
 
-    cleaned = city_raw.replace(" and ", ",").replace(" & ", ",")
-    cities = [c.strip() for c in cleaned.split(",") if c.strip()]
-    # Drop description fragments (e.g. "Tier-2 cities like")
-    cities = [
-        c for c in cities
-        if len(c) <= 25
-        and not any(w in c.lower() for w in ("including", "tier", "cities", "like"))
-    ]
-    return cities if cities else None
+    min_age = _first_set(group, "min_age")
+    max_age = _first_set(group, "max_age")
+    if min_age is not None and max_age is not None and min_age > max_age:
+        min_age, max_age = max_age, min_age
+    if min_age is not None:
+        body["min_age"] = min_age
+    if max_age is not None:
+        body["max_age"] = max_age
 
+    gender = _first_set(group, "gender")
+    if gender:
+        body["gender"] = [gender]   # filter API expects array
 
-# ── Step 2: field-level hard filter ──────────────────────────────────────────
+    min_income = _first_set(group, "min_income", "min_monthly_income")
+    if min_income is not None:
+        body["min_monthly_income"] = min_income
 
-class _GroupCriteria:
-    """Pre-computed, immutable filter criteria for one audience group.
+    max_income = _first_set(group, "max_income", "max_monthly_income")
+    if max_income is not None:
+        body["max_monthly_income"] = max_income
 
-    App_Installed and Existing_Customer are intentionally excluded here —
-    they are handled separately in Step 3 (sub-segmentation).
-    """
+    kyc = _first_set(group, "KYC_status", "kyc_status")
+    if kyc:
+        body["kyc_status"] = kyc
 
-    __slots__ = (
-        "min_age", "max_age", "gender",
-        "min_income", "max_income", "kyc_status",
-        "min_credit_score", "social_media",
-    )
+    credit = _first_set(group, "Credit_score", "min_credit_score")
+    if credit is not None:
+        body["min_credit_score"] = credit
 
-    def __init__(self, group: dict) -> None:
-        self.min_age          = group.get("min_age")
-        self.max_age          = group.get("max_age")
-        self.gender           = group.get("gender")
-        self.min_income       = group.get("min_income")
-        self.max_income       = group.get("max_income")
-        self.kyc_status       = group.get("KYC_status")
-        self.min_credit_score = group.get("Credit_score")
-        self.social_media     = group.get("Social_Media_Active")
+    social = _first_set(group, "Social_Media_Active", "social_media_active")
+    if social:
+        body["social_media_active"] = social
 
-    @property
-    def filter_applied(self) -> dict:
-        result: dict = {}
-        if self.min_age is not None:          result["age_min"]            = self.min_age
-        if self.max_age is not None:          result["age_max"]            = self.max_age
-        if self.gender:                       result["gender"]             = self.gender
-        if self.min_income is not None:       result["min_income"]         = self.min_income
-        if self.max_income is not None:       result["max_income"]         = self.max_income
-        if self.kyc_status:                   result["kyc_status"]         = self.kyc_status
-        if self.min_credit_score is not None: result["min_credit_score"]   = self.min_credit_score
-        if self.social_media:                 result["social_media_active"] = self.social_media
-        return result
+    if app_installed is not None:
+        body["app_installed"] = app_installed
+    if existing_customer is not None:
+        body["existing_customer"] = existing_customer
+
+    return body
 
 
-def _check_age(c: dict, cr: _GroupCriteria) -> bool:
-    age = c.get("Age") or 0
-    if cr.min_age is not None and age < cr.min_age:
-        return False
-    if cr.max_age is not None and age > cr.max_age:
-        return False
-    return True
-
-
-def _check_demographics(c: dict, cr: _GroupCriteria) -> bool:
-    if cr.gender and c.get("Gender") != cr.gender:
-        return False
-    return True
-
-
-def _check_financials(c: dict, cr: _GroupCriteria) -> bool:
-    income = c.get("Monthly_Income") or 0
-    if cr.min_income is not None and income < cr.min_income:
-        return False
-    if cr.max_income is not None and income > cr.max_income:
-        return False
-    if cr.min_credit_score is not None and (c.get("Credit_score") or 0) < cr.min_credit_score:
-        return False
-    return True
-
-
-def _check_flags(c: dict, cr: _GroupCriteria) -> bool:
-    if cr.kyc_status and c.get("KYC_status") != cr.kyc_status:
-        return False
-    if cr.social_media and c.get("Social_Media_Active") != cr.social_media:
-        return False
-    return True
-
-
-def _customer_passes(c: dict, cr: _GroupCriteria) -> bool:
-    return (
-        _check_age(c, cr)
-        and _check_demographics(c, cr)
-        and _check_financials(c, cr)
-        and _check_flags(c, cr)
-    )
-
-
-def _filter_customers(
-    customers: list[dict], group: dict
-) -> tuple[list[dict], dict]:
-    """Apply all group criteria EXCEPT App_Installed and Existing_Customer.
-
-    Returns (eligible_customers, filter_applied_dict).
-    min_income / max_income bound the Monthly_Income range; Credit_score is a minimum threshold.
-    """
-    cr = _GroupCriteria(group)
-    eligible = [c for c in customers if _customer_passes(c, cr)]
-    return eligible, cr.filter_applied
-
-
-# ── Step 3: App_Installed × Existing_Customer sub-segmentation ────────────────
-
-def _get_customer_id(c: dict) -> str:
-    return str(c.get("customer_id") or c.get("_id") or "")
-
-
-def _segment_suffix(app: str | None, existing: str | None) -> str:
-    parts: list[str] = []
-    if app == "Y":      parts.append("app")
-    elif app == "N":    parts.append("no_app")
-    if existing == "Y": parts.append("existing")
-    elif existing == "N": parts.append("prospect")
-    return "_".join(parts) or "all"
-
+# ── Segment metadata helpers ──────────────────────────────────────────────────
 
 def _segment_description(app: str | None, existing: str | None) -> str:
-    descs: list[str] = []
-    if app == "Y":        descs.append("app installed")
-    elif app == "N":      descs.append("app not installed")
-    if existing == "Y":   descs.append("existing customer")
-    elif existing == "N": descs.append("non-customer (prospect)")
-    return " — ".join(descs) if descs else "all eligible customers"
+    parts: list[str] = []
+    if app == "Y":       parts.append("app installed")
+    elif app == "N":     parts.append("app not installed")
+    if existing == "Y":  parts.append("existing customer")
+    elif existing == "N": parts.append("non-customer (prospect)")
+    return " — ".join(parts) if parts else "all eligible customers"
 
 
 def _segment_priority(app: str | None, existing: str | None) -> int:
     if app == "Y" and existing == "Y": return 5
     if app == "Y" and existing == "N": return 4
-    if app == "Y":    return 4
-    if existing == "Y": return 3
-    if existing == "N": return 3
+    if app == "Y":                     return 4
+    if existing == "Y":                return 3
+    if existing == "N":                return 3
     return 2
 
 
@@ -231,152 +150,130 @@ def _segment_approach(app: str | None, existing: str | None) -> str:
     return "Broad benefit-led messaging tailored to this group's life stage."
 
 
-def _make_segment(
-    name: str,
-    customers: list[dict],
-    description: str,
-    priority: int,
-    approach: str,
-    applied_criteria: dict,
-) -> dict:
-    return {
-        "segment_name": name,
-        "description": description,
-        "customer_ids": [_get_customer_id(c) for c in customers],
-        "size": len(customers),
-        "targeting_priority": priority,
-        "recommended_approach": approach,
-        "applied_criteria": applied_criteria,
-    }
+# ── Segment-building helpers ──────────────────────────────────────────────────
+
+def _three_way_segments(
+    prefix: str,
+    base_criteria: dict,
+    active_ids: list[str],
+    inactive_ids: list[str],
+    dormant_ids: list[str],
+) -> list[dict]:
+    """Build active / inactive / dormant segment dicts from pre-fetched ID lists."""
+    segments: list[dict] = []
+    if active_ids:
+        segments.append({
+            "segment_name": f"{prefix}_active",
+            "description": "Active customers — app installed + existing relationship",
+            "customer_ids": active_ids,
+            "size": len(active_ids),
+            "targeting_priority": 5,
+            "recommended_approach": "Lead with loyalty and retention messaging. Upsell focus.",
+            "applied_criteria": {**base_criteria, "App_Installed": "Y", "Existing_Customer": "Y"},
+        })
+    if inactive_ids:
+        segments.append({
+            "segment_name": f"{prefix}_inactive",
+            "description": "Existing customers without the app — re-engagement opportunity",
+            "customer_ids": inactive_ids,
+            "size": len(inactive_ids),
+            "targeting_priority": 3,
+            "recommended_approach": "Drive app install with benefit-led messaging.",
+            "applied_criteria": {**base_criteria, "App_Installed": "N", "Existing_Customer": "Y"},
+        })
+    if dormant_ids:
+        segments.append({
+            "segment_name": f"{prefix}_dormant",
+            "description": "Non-customers — acquisition focus",
+            "customer_ids": dormant_ids,
+            "size": len(dormant_ids),
+            "targeting_priority": 4,
+            "recommended_approach": "Welcome framing. Emphasise simplicity of sign-up.",
+            "applied_criteria": {**base_criteria, "Existing_Customer": "N"},
+        })
+    return segments
 
 
-def _create_sub_segments(
-    group_name: str,
-    eligible: list[dict],
+def _single_segment(
+    prefix: str,
+    base_criteria: dict,
+    ids: list[str],
     app_filter: str | None,
     existing_filter: str | None,
 ) -> list[dict]:
-    """Step 3: sub-divide eligible pool by App_Installed × Existing_Customer.
-
-    Both null  → 3 segments (active / inactive / dormant).
-    ≥1 specified → 1 segment filtered to matching customers only.
-    """
-    prefix = group_name.lower().replace(" ", "_")  # "group_1", "group_2"
-
-    if app_filter is None and existing_filter is None:
-        # ── Both unspecified → 3-way activity split ───────────────────────────
-        active   = [c for c in eligible
-                    if c.get("App_Installed") == "Y" and c.get("Existing_Customer") == "Y"]
-        inactive = [c for c in eligible
-                    if c.get("Existing_Customer") == "Y" and c.get("App_Installed") != "Y"]
-        dormant  = [c for c in eligible if c.get("Existing_Customer") == "N"]
-
-        segments: list[dict] = []
-        if active:
-            segments.append(_make_segment(
-                f"{prefix}_active", active,
-                "Active customers — app installed + existing relationship",
-                5, "Lead with loyalty and retention messaging. Upsell focus.",
-                {"App_Installed": "Y", "Existing_Customer": "Y"},
-            ))
-        if inactive:
-            segments.append(_make_segment(
-                f"{prefix}_inactive", inactive,
-                "Existing customers without the app — re-engagement opportunity",
-                3, "Drive app install with benefit-led messaging.",
-                {"App_Installed": "N", "Existing_Customer": "Y"},
-            ))
-        if dormant:
-            segments.append(_make_segment(
-                f"{prefix}_dormant", dormant,
-                "Non-customers — acquisition focus",
-                4, "Welcome framing. Emphasise simplicity of sign-up.",
-                {"Existing_Customer": "N"},
-            ))
-        return segments
-
-    # ── At least one is specified → single filtered segment ──────────────────
-    pool = eligible
-    criteria: dict = {}
-
+    """Build a single segment dict when app/existing filters are explicitly set."""
+    suffix_parts: list[str] = []
+    criteria: dict = dict(base_criteria)
     if app_filter is not None:
-        pool = [c for c in pool if c.get("App_Installed") == app_filter]
+        suffix_parts.append("app" if app_filter == "Y" else "no_app")
         criteria["App_Installed"] = app_filter
     if existing_filter is not None:
-        pool = [c for c in pool if c.get("Existing_Customer") == existing_filter]
+        suffix_parts.append("existing" if existing_filter == "Y" else "prospect")
         criteria["Existing_Customer"] = existing_filter
-
-    if not pool:
-        return []
-
-    suffix = _segment_suffix(app_filter, existing_filter)
-    return [_make_segment(
-        f"{prefix}_{suffix}",
-        pool,
-        _segment_description(app_filter, existing_filter),
-        _segment_priority(app_filter, existing_filter),
-        _segment_approach(app_filter, existing_filter),
-        criteria,
-    )]
+    suffix = "_".join(suffix_parts) or "all"
+    return [{
+        "segment_name": f"{prefix}_{suffix}",
+        "description": _segment_description(app_filter, existing_filter),
+        "customer_ids": ids,
+        "size": len(ids),
+        "targeting_priority": _segment_priority(app_filter, existing_filter),
+        "recommended_approach": _segment_approach(app_filter, existing_filter),
+        "applied_criteria": criteria,
+    }]
 
 
 # ── Agent ─────────────────────────────────────────────────────────────────────
 
 class CustomerSegmentationAgent(BaseAgent):
-    """Pure-Python segmentation agent.
+    """Mock API-backed segmentation agent.
 
     Processes every audience group in parallel (asyncio.gather).
-    No LLM calls — all filtering and sub-segmentation is deterministic.
+    Calls POST /api/customers/filter — no local customer data needed.
+    No LLM calls — all logic is deterministic.
     """
 
     def __init__(self, **kwargs: Any) -> None:
         kwargs.setdefault("temperature", 0.0)
         kwargs.setdefault("max_tokens", 256)
         super().__init__(**kwargs)
+        self._client = MockCampaignClient()
 
     async def execute(self, input_data: dict[str, Any]) -> dict[str, Any]:
-        customers: list[dict] = input_data.get("customers") or []
         target_audience: Any = input_data.get("target_audience") or {}
-        total_count = len(customers)
 
         self._log_action("execute_start", {
-            "total_customers": total_count,
             "groups": list(target_audience.keys()) if isinstance(target_audience, dict) else [],
         })
 
-        # Handle legacy callers that still pass target_audience as a string
         if not isinstance(target_audience, dict) or not target_audience:
             logger.warning(
                 "segmentation: target_audience is not a group dict — "
                 "creating single general_audience segment"
             )
-            return self._general_fallback(customers, total_count)
+            return self._general_fallback()
 
-        # ── Process all groups in parallel ────────────────────────────────────
         group_tasks = [
-            self._process_group(name, group, customers, total_count)
+            self._process_group(name, group)
             for name, group in target_audience.items()
         ]
         group_results: list[dict] = await asyncio.gather(*group_tasks)
 
-        # ── Flatten segments from all groups ──────────────────────────────────
         all_segments: list[dict] = []
         all_distribution: dict[str, int] = {}
         for gr in group_results:
             all_segments.extend(gr["segments"])
             all_distribution.update(gr["distribution"])
 
-        # Unique qualified customer IDs across all groups
         unique_qualified = {
             cid
             for seg in all_segments
             for cid in seg.get("customer_ids", [])
         }
-        coverage_pct = round(len(unique_qualified) / total_count * 100, 1) if total_count else 0.0
+        coverage_pct = round(len(unique_qualified) / _MOCK_TOTAL_CUSTOMERS * 100, 1)
 
         result = {
             "segments": all_segments,
-            "total_customers": total_count,
+            "total_customers": _MOCK_TOTAL_CUSTOMERS,
             "qualified_count": len(unique_qualified),
             "coverage_pct": coverage_pct,
             "distribution": all_distribution,
@@ -394,78 +291,85 @@ class CustomerSegmentationAgent(BaseAgent):
 
     # ── Per-group pipeline ────────────────────────────────────────────────────
 
-    async def _process_group(
-        self,
-        group_name: str,
-        group_data: dict,
-        customers: list[dict],
-        total_count: int,
-    ) -> dict:
-        """Steps 2 + 3 for a single audience group."""
+    async def _process_group(self, group_name: str, group_data: dict) -> dict:
+        """Call the filter API for a single audience group and build sub-segments."""
+        prefix = group_name.lower().replace(" ", "_")
+        app_filter = _first_set(group_data, "App_Installed", "app_installed")
+        existing_filter = _first_set(group_data, "Existing_Customer", "existing_customer")
+        base_criteria = _build_filter_body(group_data)
 
-        # Step 2 — hard filter (excludes App_Installed, Existing_Customer)
-        eligible, filter_applied = _filter_customers(customers, group_data)
-        qualified_count = len(eligible)
+        if app_filter is None and existing_filter is None:
+            active_ids, inactive_ids, dormant_ids = await asyncio.gather(
+                self._call_filter(group_data, app_installed="Y", existing_customer="Y"),
+                self._call_filter(group_data, app_installed="N", existing_customer="Y"),
+                self._call_filter(group_data, existing_customer="N"),
+            )
+            segments = _three_way_segments(prefix, base_criteria, active_ids, inactive_ids, dormant_ids)
+        else:
+            ids = await self._call_filter(
+                group_data, app_installed=app_filter, existing_customer=existing_filter
+            )
+            if not ids:
+                logger.warning("segmentation: group '%s' matched 0 customers", group_name)
+            segments = _single_segment(prefix, base_criteria, ids, app_filter, existing_filter) if ids else []
+
+        qualified_count = sum(s["size"] for s in segments)
+        distribution = {s["segment_name"]: s["size"] for s in segments}
 
         self._log_action("group_filtered", {
             "group": group_name,
-            "eligible": qualified_count,
-            "total": total_count,
+            "qualified": qualified_count,
+            "segments": len(segments),
         })
-
-        if qualified_count == 0:
-            logger.warning("segmentation: group '%s' matched 0 customers", group_name)
-            return {
-                "group_name": group_name,
-                "qualified_count": 0,
-                "total_count": total_count,
-                "filter_applied": filter_applied,
-                "segments": [],
-                "coverage_pct": 0.0,
-                "distribution": {},
-            }
-
-        # Pass App_Installed + Existing_Customer through to Step 3
-        app_filter      = group_data.get("App_Installed")
-        existing_filter = group_data.get("Existing_Customer")
-
-        # Step 3 — sub-segment by App_Installed × Existing_Customer
-        segments = _create_sub_segments(
-            group_name, eligible, app_filter, existing_filter
-        )
-
-        distribution = {s["segment_name"]: s["size"] for s in segments}
-        covered = sum(s["size"] for s in segments)
-        coverage_pct = round(covered / qualified_count * 100, 1) if qualified_count else 0.0
 
         return {
             "group_name": group_name,
             "qualified_count": qualified_count,
-            "total_count": total_count,
-            "filter_applied": filter_applied,
+            "filter_applied": base_criteria,
             "segments": segments,
-            "coverage_pct": coverage_pct,
+            "coverage_pct": round(qualified_count / _MOCK_TOTAL_CUSTOMERS * 100, 1),
             "distribution": distribution,
         }
+
+    # ── Mock API call ─────────────────────────────────────────────────────────
+
+    async def _call_filter(
+        self,
+        group: dict,
+        *,
+        app_installed: str | None = None,
+        existing_customer: str | None = None,
+    ) -> list[str]:
+        """POST /api/customers/filter and return the customer_ids list."""
+        body = _build_filter_body(group, app_installed=app_installed, existing_customer=existing_customer)
+        loop = asyncio.get_event_loop()
+        try:
+            result = await loop.run_in_executor(
+                None, lambda: self._client.filter_customers(body)
+            )
+            return result.get("customer_ids", [])
+        except Exception as exc:
+            logger.error("segmentation: filter API call failed — %s", exc)
+            return []
 
     # ── Fallback ──────────────────────────────────────────────────────────────
 
     @staticmethod
-    def _general_fallback(customers: list[dict], total_count: int) -> dict:
-        """Return a single catch-all segment when no group criteria are available."""
-        segment = _make_segment(
-            "general_audience",
-            customers,
-            "All customers — no audience group criteria specified",
-            1,
-            "Use broad, benefit-led messaging.",
-            {},
-        )
+    def _general_fallback() -> dict:
+        """Return a single catch-all placeholder when no group criteria are available."""
         return {
-            "segments": [segment],
-            "total_customers": total_count,
-            "qualified_count": total_count,
-            "coverage_pct": 100.0,
-            "distribution": {"general_audience": total_count},
+            "segments": [{
+                "segment_name": "general_audience",
+                "description": "All customers — no audience group criteria specified",
+                "customer_ids": [],
+                "size": 0,
+                "targeting_priority": 1,
+                "recommended_approach": "Use broad, benefit-led messaging.",
+                "applied_criteria": {},
+            }],
+            "total_customers": _MOCK_TOTAL_CUSTOMERS,
+            "qualified_count": 0,
+            "coverage_pct": 0.0,
+            "distribution": {"general_audience": 0},
             "groups_detail": [],
         }
