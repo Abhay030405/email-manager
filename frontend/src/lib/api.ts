@@ -1,4 +1,4 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3030";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 // ── Backend shapes ─────────────────────────────────────────────────────────
 
@@ -55,10 +55,12 @@ export interface ApiVariant {
 
 export interface ApiSegmentCriteria {
   age_range?: { min?: number; max?: number } | null;
-  gender?: string[] | null;
-  cities?: string[] | null;
-  occupation_type?: string[] | null;
+  gender?: string | null;
+  min_income?: number | null;
+  max_income?: number | null;
+  min_credit_score?: number | null;
   app_installed?: string | null;
+  social_media_active?: string | null;
   existing_customer?: string | null;
 }
 

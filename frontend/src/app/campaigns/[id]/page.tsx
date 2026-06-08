@@ -79,11 +79,11 @@ export default function CampaignDetail() {
       setSegments(apiSegs.map((s) => {
         const c = s.segment_criteria ?? {};
         return {
-          name: s.segment_name.replace(/_/g, " "),
+          name: s.segment_name.replaceAll("_", " "),
           count: s.customer_ids?.length ?? 0,
           age: c.age_range ? `${c.age_range.min ?? ""}–${c.age_range.max ?? ""}` : "All ages",
-          gender: c.gender?.join(", ") ?? "All",
-          location: c.cities?.slice(0, 3).join(", ") ?? "All locations",
+          gender: c.gender ?? "All",
+          location: "All locations",
           description: s.description || `Segment: ${s.segment_name}`,
         };
       }));

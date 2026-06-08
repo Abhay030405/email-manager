@@ -264,7 +264,6 @@ def sample_segment() -> Segment:
         customer_ids=["CUST0001", "CUST0002", "CUST0003"],
         segment_criteria=SegmentCriteria(
             age_range={"min": 18, "max": 35},
-            cities=["Mumbai", "Delhi"],
             app_installed="Y",
         ),
     )

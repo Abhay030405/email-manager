@@ -31,11 +31,11 @@ interface VariantData {
 function mapSegment(s: ApiSegment): SegmentCardData {
   const c = s.segment_criteria ?? {};
   return {
-    name: s.segment_name.replace(/_/g, " "),
+    name: s.segment_name.replaceAll("_", " "),
     count: s.customer_ids?.length ?? 0,
     age: c.age_range ? `${c.age_range.min ?? ""}–${c.age_range.max ?? ""}` : "All ages",
-    gender: c.gender?.join(", ") ?? "All",
-    location: c.cities?.slice(0, 3).join(", ") ?? "All locations",
+    gender: c.gender ?? "All",
+    location: "All locations",
     description: s.description || `Segment: ${s.segment_name}`,
   };
 }
@@ -64,7 +64,7 @@ export default function CampaignStrategy() {
           variant: LABELS[i] ?? String(i + 1),
           subject: v.subject_line,
           body: v.email_body,
-          segment: v.segment_name.replace(/_/g, " "),
+          segment: v.segment_name.replaceAll("_", " "),
         })))
       ),
     ]).finally(() => setLoading(false));
@@ -97,8 +97,8 @@ export default function CampaignStrategy() {
         {/* Page header */}
         <div className="mb-8">
           <div className="inline-flex items-center gap-1.5 text-[11px] font-mono text-stat-green/80 bg-stat-green/8 border border-stat-green/20 px-2.5 py-1 rounded mb-3">
-            <span className="w-1.5 h-1.5 rounded-full bg-stat-green" />
-            AI Generated
+            <span className="w-1.5 h-1.5 rounded-full bg-stat-green" aria-hidden="true" />
+            {"AI Generated"}
           </div>
           <h1 className="font-display text-2xl sm:text-3xl font-bold text-foreground tracking-tight">
             Campaign Strategy

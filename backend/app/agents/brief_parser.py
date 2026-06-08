@@ -24,19 +24,14 @@ class AudienceGroup(BaseModel):
 
     min_age: Optional[int] = None
     max_age: Optional[int] = None
-    Marital_Status: Optional[str] = None        # Single | Married | Divorced
-    Family_Size: Optional[int] = None
-    Dependent_count: Optional[int] = None
-    Occupation: Optional[str] = None
-    Occupation_type: Optional[str] = None       # Full-time | Part-time | Self-employed
-    Monthly_Income: Optional[int] = None        # absolute integer e.g. 30000
-    KYC_status: Optional[str] = None            # Y | N
-    City: Optional[str] = None
-    Kids_in_Household: Optional[int] = None
-    App_Installed: Optional[str] = None         # Y | N
-    Existing_Customer: Optional[str] = None     # Y | N
-    Credit_score: Optional[int] = None
-    Social_Media_Active: Optional[str] = None   # Y | N
+    gender: Optional[str] = None               # Male | Female | Other
+    min_income: Optional[int] = None           # monthly income lower bound
+    max_income: Optional[int] = None           # monthly income upper bound
+    KYC_status: Optional[str] = None           # Y | N
+    App_Installed: Optional[str] = None        # Y | N
+    Existing_Customer: Optional[str] = None    # Y | N
+    Credit_score: Optional[int] = None         # minimum credit score threshold
+    Social_Media_Active: Optional[str] = None  # Y | N
 
 
 class BriefInput(BaseModel):
@@ -125,20 +120,15 @@ and respond with ONLY a valid JSON object — no markdown fences, no extra text.
   "product_description": "<string>  — short description of the product/service",
   "target_audience": {{
     "Group 1": {{
-      "min_age":           <int|null>,
-      "max_age":           <int|null>,
-      "Marital_Status":    <"Single"|"Married"|"Divorced"|null>,
-      "Family_Size":       <int|null>,
-      "Dependent_count":   <int|null>,
-      "Occupation":        <string|null>,
-      "Occupation_type":   <"Full-time"|"Part-time"|"Self-employed"|null>,
-      "Monthly_Income":    <int|null>,
-      "KYC_status":        <"Y"|"N"|null>,
-      "City":              <string|null>,
-      "Kids_in_Household": <int|null>,
-      "App_Installed":     <"Y"|"N"|null>,
-      "Existing_Customer": <"Y"|"N"|null>,
-      "Credit_score":      <int|null>,
+      "min_age":             <int|null>,
+      "max_age":             <int|null>,
+      "gender":              <"Male"|"Female"|"Other"|null>,
+      "min_income":          <int|null>,
+      "max_income":          <int|null>,
+      "KYC_status":          <"Y"|"N"|null>,
+      "App_Installed":       <"Y"|"N"|null>,
+      "Existing_Customer":   <"Y"|"N"|null>,
+      "Credit_score":        <int|null>,
       "Social_Media_Active": <"Y"|"N"|null>
     }},
     "Group 2": {{ ... }}
@@ -156,7 +146,8 @@ and respond with ONLY a valid JSON object — no markdown fences, no extra text.
 ## Rules
 - target_audience: create one group per DISTINCT audience segment described. If only one segment, produce only "Group 1".
 - Each group field must be null if NOT explicitly stated in the brief. Do NOT infer or predict.
-- Monthly_Income must be an absolute integer (e.g. 30000, not "30L" or "30k").
+- min_income / max_income must be absolute integers (e.g. 30000, not "30L" or "30k"). Use min_income for "income above X", max_income for "income below X".
+- Credit_score is the minimum threshold (e.g. "credit score above 700" → Credit_score: 700).
 - campaign_goal: map "sales"→conversion, "brand"→awareness, "loyal"→retention, "interact"→engagement.
 - budget: strip currency symbols and "k" multipliers (e.g. "$5k" → 5000.0).
 - cta_link: return empty string if no valid URL is present.
@@ -176,10 +167,9 @@ Response:
   "product_description": "Cloud storage plan for small and medium businesses",
   "target_audience": {{
     "Group 1": {{
-      "min_age": null, "max_age": null, "Marital_Status": null, "Family_Size": null,
-      "Dependent_count": null, "Occupation": "SMB owner", "Occupation_type": null,
-      "Monthly_Income": null, "KYC_status": null, "City": null,
-      "Kids_in_Household": null, "App_Installed": null, "Existing_Customer": null,
+      "min_age": null, "max_age": null, "gender": null,
+      "min_income": null, "max_income": null, "KYC_status": null,
+      "App_Installed": null, "Existing_Customer": null,
       "Credit_score": null, "Social_Media_Active": null
     }}
   }},
@@ -205,17 +195,15 @@ Response:
   "product_description": "Investment / deposit product",
   "target_audience": {{
     "Group 1": {{
-      "min_age": 25, "max_age": 45, "Marital_Status": "Married", "Family_Size": 3,
-      "Dependent_count": null, "Occupation": null, "Occupation_type": "Full-time",
-      "Monthly_Income": 50000, "KYC_status": "Y", "City": "Metro cities",
-      "Kids_in_Household": null, "App_Installed": "Y", "Existing_Customer": null,
+      "min_age": 25, "max_age": 45, "gender": null,
+      "min_income": 50000, "max_income": null, "KYC_status": "Y",
+      "App_Installed": "Y", "Existing_Customer": null,
       "Credit_score": 700, "Social_Media_Active": null
     }},
     "Group 2": {{
-      "min_age": 18, "max_age": 24, "Marital_Status": "Single", "Family_Size": null,
-      "Dependent_count": null, "Occupation": "Student", "Occupation_type": null,
-      "Monthly_Income": null, "KYC_status": null, "City": null,
-      "Kids_in_Household": null, "App_Installed": "N", "Existing_Customer": null,
+      "min_age": 18, "max_age": 24, "gender": null,
+      "min_income": null, "max_income": null, "KYC_status": null,
+      "App_Installed": "N", "Existing_Customer": null,
       "Credit_score": null, "Social_Media_Active": null
     }}
   }},

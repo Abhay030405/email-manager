@@ -282,7 +282,7 @@ class SegmentCreate(BaseModel):
                     "segment_criteria": {
                         "age_range": {"min": 20, "max": 35},
                         "gender": ["Male"],
-                        "cities": ["Mumbai", "Delhi"],
+                        "min_income": 30000,
                         "app_installed": "Y",
                     },
                 }

@@ -99,40 +99,32 @@ class _GroupCriteria:
     """
 
     __slots__ = (
-        "min_age", "max_age", "marital_status", "occupation_type",
-        "occupation", "min_income", "kyc_status", "cities",
-        "min_credit_score", "social_media", "min_kids", "min_family",
+        "min_age", "max_age", "gender",
+        "min_income", "max_income", "kyc_status",
+        "min_credit_score", "social_media",
     )
 
     def __init__(self, group: dict) -> None:
-        self.min_age         = group.get("min_age")
-        self.max_age         = group.get("max_age")
-        self.marital_status  = group.get("Marital_Status")
-        self.occupation_type = group.get("Occupation_type")
-        self.occupation      = group.get("Occupation")
-        self.min_income      = group.get("Monthly_Income")
-        self.kyc_status      = group.get("KYC_status")
-        self.cities          = _parse_cities(group.get("City"))
+        self.min_age          = group.get("min_age")
+        self.max_age          = group.get("max_age")
+        self.gender           = group.get("gender")
+        self.min_income       = group.get("min_income")
+        self.max_income       = group.get("max_income")
+        self.kyc_status       = group.get("KYC_status")
         self.min_credit_score = group.get("Credit_score")
-        self.social_media    = group.get("Social_Media_Active")
-        self.min_kids        = group.get("Kids_in_Household")
-        self.min_family      = group.get("Family_Size")
+        self.social_media     = group.get("Social_Media_Active")
 
     @property
     def filter_applied(self) -> dict:
         result: dict = {}
-        if self.min_age is not None:        result["age_min"]            = self.min_age
-        if self.max_age is not None:        result["age_max"]            = self.max_age
-        if self.marital_status:             result["marital_status"]     = self.marital_status
-        if self.occupation_type:            result["occupation_type"]    = self.occupation_type
-        if self.occupation:                 result["occupation"]         = self.occupation
-        if self.min_income is not None:     result["min_income"]         = self.min_income
-        if self.kyc_status:                 result["kyc_status"]         = self.kyc_status
-        if self.cities:                     result["cities"]             = self.cities
-        if self.min_credit_score is not None: result["min_credit_score"] = self.min_credit_score
-        if self.social_media:               result["social_media_active"] = self.social_media
-        if self.min_kids is not None:       result["min_kids"]           = self.min_kids
-        if self.min_family is not None:     result["min_family_size"]    = self.min_family
+        if self.min_age is not None:          result["age_min"]            = self.min_age
+        if self.max_age is not None:          result["age_max"]            = self.max_age
+        if self.gender:                       result["gender"]             = self.gender
+        if self.min_income is not None:       result["min_income"]         = self.min_income
+        if self.max_income is not None:       result["max_income"]         = self.max_income
+        if self.kyc_status:                   result["kyc_status"]         = self.kyc_status
+        if self.min_credit_score is not None: result["min_credit_score"]   = self.min_credit_score
+        if self.social_media:                 result["social_media_active"] = self.social_media
         return result
 
 
@@ -146,37 +138,26 @@ def _check_age(c: dict, cr: _GroupCriteria) -> bool:
 
 
 def _check_demographics(c: dict, cr: _GroupCriteria) -> bool:
-    if cr.marital_status and c.get("Marital_Status") != cr.marital_status:
-        return False
-    if cr.occupation_type and c.get("Occupation_type") != cr.occupation_type:
-        return False
-    if cr.occupation and c.get("Occupation") != cr.occupation:
+    if cr.gender and c.get("Gender") != cr.gender:
         return False
     return True
 
 
 def _check_financials(c: dict, cr: _GroupCriteria) -> bool:
-    if cr.min_income is not None and (c.get("Monthly_Income") or 0) < cr.min_income:
+    income = c.get("Monthly_Income") or 0
+    if cr.min_income is not None and income < cr.min_income:
+        return False
+    if cr.max_income is not None and income > cr.max_income:
         return False
     if cr.min_credit_score is not None and (c.get("Credit_score") or 0) < cr.min_credit_score:
         return False
     return True
 
 
-def _check_flags_and_location(c: dict, cr: _GroupCriteria) -> bool:
+def _check_flags(c: dict, cr: _GroupCriteria) -> bool:
     if cr.kyc_status and c.get("KYC_status") != cr.kyc_status:
         return False
     if cr.social_media and c.get("Social_Media_Active") != cr.social_media:
-        return False
-    if cr.cities and not _city_matches(str(c.get("City") or ""), cr.cities):
-        return False
-    return True
-
-
-def _check_household(c: dict, cr: _GroupCriteria) -> bool:
-    if cr.min_kids is not None and (c.get("Kids_in_Household") or 0) < cr.min_kids:
-        return False
-    if cr.min_family is not None and (c.get("Family_Size") or 0) < cr.min_family:
         return False
     return True
 
@@ -186,8 +167,7 @@ def _customer_passes(c: dict, cr: _GroupCriteria) -> bool:
         _check_age(c, cr)
         and _check_demographics(c, cr)
         and _check_financials(c, cr)
-        and _check_flags_and_location(c, cr)
-        and _check_household(c, cr)
+        and _check_flags(c, cr)
     )
 
 
@@ -197,7 +177,7 @@ def _filter_customers(
     """Apply all group criteria EXCEPT App_Installed and Existing_Customer.
 
     Returns (eligible_customers, filter_applied_dict).
-    Monthly_Income and Credit_score are treated as minimum thresholds (≥).
+    min_income / max_income bound the Monthly_Income range; Credit_score is a minimum threshold.
     """
     cr = _GroupCriteria(group)
     eligible = [c for c in customers if _customer_passes(c, cr)]

@@ -9,81 +9,59 @@ import uuid
 
 from pydantic import BaseModel, Field, model_validator
 
+_YN_DESC = "Y / N / None (any)"
+
 
 class SegmentCriteria(BaseModel):
-    """Demographic filter criteria matching Mock API customer fields."""
+    """Demographic filter criteria stored with each segment document."""
 
-    age_range: dict[str, int] = Field(
-        default_factory=lambda: {"min": 0, "max": 120},
-        description="Age range with min/max keys",
-    )
-    gender: list[str] = Field(
-        default_factory=list, description="Male / Female / Other"
-    )
-    cities: list[str] = Field(
-        default_factory=list, description="Indian cities filter"
-    )
-    marital_status: list[str] = Field(
-        default_factory=list,
-        description="Married / Single / Divorced / Widowed",
-    )
-    occupation_type: list[str] = Field(
-        default_factory=list,
-        description="Full-time / Part-time / Self-employed / Retired / Student",
-    )
+    age_range: Optional[dict[str, int]] = Field(None, description="Age range with min/max keys")
+    gender: Optional[str] = Field(None, description="Male / Female / Other")
     min_income: Optional[float] = Field(None, ge=0)
     max_income: Optional[float] = Field(None, ge=0)
-    credit_score_range: dict[str, int] = Field(
-        default_factory=lambda: {"min": 300, "max": 850},
-        description="Credit score range",
-    )
-    app_installed: Optional[str] = Field(
-        None, description="Y / N / None (any)"
-    )
-    social_media_active: Optional[str] = Field(
-        None, description="Y / N / None (any)"
-    )
-    existing_customer: Optional[str] = Field(
-        None, description="Y / N / None (any)"
-    )
+    min_credit_score: Optional[int] = Field(None, ge=300, le=850)
+    kyc_status: Optional[str] = Field(None, description=_YN_DESC)
+    app_installed: Optional[str] = Field(None, description=_YN_DESC)
+    social_media_active: Optional[str] = Field(None, description=_YN_DESC)
+    existing_customer: Optional[str] = Field(None, description=_YN_DESC)
 
     def matches_customer(self, customer: Any) -> bool:
         """Check whether a Customer instance satisfies all segment criteria."""
-        age_min = self.age_range.get("min", 0)
-        age_max = self.age_range.get("max", 120)
-        if not (age_min <= customer.Age <= age_max):
-            return False
+        return (
+            self._check_age(customer)
+            and self._check_financials(customer)
+            and self._check_flags(customer)
+        )
 
-        if self.gender and customer.Gender not in self.gender:
+    def _check_age(self, customer: Any) -> bool:
+        if self.age_range is not None:
+            age_min = self.age_range.get("min", 0)
+            age_max = self.age_range.get("max", 120)
+            if not (age_min <= customer.Age <= age_max):
+                return False
+        if self.gender is not None and customer.Gender != self.gender:
             return False
-
-        if self.cities and customer.City not in self.cities:
-            return False
-
-        if self.marital_status and customer.Marital_Status not in self.marital_status:
-            return False
-
-        if self.occupation_type and customer.Occupation_type not in self.occupation_type:
-            return False
-
-        if self.min_income is not None and customer.Monthly_Income < self.min_income:
-            return False
-        if self.max_income is not None and customer.Monthly_Income > self.max_income:
-            return False
-
-        cs_min = self.credit_score_range.get("min", 300)
-        cs_max = self.credit_score_range.get("max", 850)
-        if not (cs_min <= customer.Credit_score <= cs_max):
-            return False
-
-        if self.app_installed is not None and customer.App_Installed != self.app_installed:
-            return False
-        if self.social_media_active is not None and customer.Social_Media_Active != self.social_media_active:
-            return False
-        if self.existing_customer is not None and customer.Existing_Customer != self.existing_customer:
-            return False
-
         return True
+
+    def _check_financials(self, customer: Any) -> bool:
+        income = customer.Monthly_Income
+        if self.min_income is not None and income < self.min_income:
+            return False
+        if self.max_income is not None and income > self.max_income:
+            return False
+        if self.min_credit_score is not None and customer.Credit_score < self.min_credit_score:
+            return False
+        return True
+
+    def _check_flags(self, customer: Any) -> bool:
+        checks = [
+            (self.kyc_status,        customer.KYC_status),
+            (self.app_installed,     customer.App_Installed),
+            (self.social_media_active, customer.Social_Media_Active),
+            (self.existing_customer, customer.Existing_Customer),
+        ]
+        return all(expected is None or customer_val == expected
+                   for expected, customer_val in checks)
 
 
 class Segment(BaseModel):

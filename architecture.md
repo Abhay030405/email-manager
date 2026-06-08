@@ -74,25 +74,20 @@ The `/api/v1/campaigns/parse-brief` endpoint wraps the agent output into `Parsed
 
 **`target_audience`** — keyed by group label (e.g. `"Group 1"`, `"Group 2"`, …)
 
-Each group is an `AudienceGroup` object that maps directly to Customer DB fields:
+Each group is an `AudienceGroup` object with 10 fields that map directly to Customer DB fields:
 
-| Field | Type | Customer DB field |
-|-------|------|-------------------|
-| `min_age` | `int \| null` | `Age ≥` |
-| `max_age` | `int \| null` | `Age ≤` |
-| `Marital_Status` | `str \| null` | `Marital_Status` |
-| `Family_Size` | `int \| null` | `Family_Size` |
-| `Dependent_count` | `int \| null` | `Dependent_count` |
-| `Occupation` | `str \| null` | `Occupation` |
-| `Occupation_type` | `str \| null` | `Occupation_type` |
-| `Monthly_Income` | `int \| null` | `Monthly_Income ≥` |
-| `KYC_status` | `str \| null` | `KYC_status` |
-| `City` | `str \| null` | `City` (comma-separated list) |
-| `Kids_in_Household` | `int \| null` | `Kids_in_Household` |
-| `App_Installed` | `str \| null` | `App_Installed` |
-| `Existing_Customer` | `str \| null` | `Existing_Customer` |
-| `Credit_score` | `int \| null` | `Credit_score ≥` |
-| `Social_Media_Active` | `str \| null` | `Social_Media_Active` |
+| Field | Type | Filter applied to Customer DB |
+|-------|------|-------------------------------|
+| `min_age` | `int \| null` | `Age ≥ min_age` |
+| `max_age` | `int \| null` | `Age ≤ max_age` |
+| `gender` | `str \| null` | `Gender = "Male" \| "Female" \| "Other"` |
+| `min_income` | `int \| null` | `Monthly_Income ≥ min_income` |
+| `max_income` | `int \| null` | `Monthly_Income ≤ max_income` |
+| `KYC_status` | `str \| null` | `KYC_status = "Y" \| "N"` |
+| `App_Installed` | `str \| null` | `App_Installed = "Y" \| "N"` |
+| `Existing_Customer` | `str \| null` | `Existing_Customer = "Y" \| "N"` |
+| `Credit_score` | `int \| null` | `Credit_score ≥ Credit_score` (minimum threshold) |
+| `Social_Media_Active` | `str \| null` | `Social_Media_Active = "Y" \| "N"` |
 
 `null` means no filter applied for that field.
 
@@ -121,25 +116,28 @@ Each group is an `AudienceGroup` object that maps directly to Customer DB fields
   "target_audience": {
     "Group 1": {
       "min_age": 25, "max_age": 35,
-      "Occupation_type": "Full-time", "Monthly_Income": 40000,
-      "KYC_status": "Y", "App_Installed": "Y", "Social_Media_Active": "Y",
-      "City": "Mumbai, Delhi, Bengaluru, Chennai, Hyderabad, Kolkata, Pune",
-      "Marital_Status": null, "Existing_Customer": null, "Credit_score": null
+      "gender": null,
+      "min_income": 40000, "max_income": null,
+      "KYC_status": "Y", "App_Installed": "Y",
+      "Existing_Customer": null, "Credit_score": null,
+      "Social_Media_Active": "Y"
     },
     "Group 2": {
       "min_age": 35, "max_age": 55,
-      "Marital_Status": "Married", "Occupation_type": "Full-time", "Monthly_Income": 80000,
-      "KYC_status": "Y", "App_Installed": "Y", "Existing_Customer": "N",
-      "City": "Mumbai, Delhi, Bengaluru, Chennai, Hyderabad, Kolkata, Pune"
+      "gender": null,
+      "min_income": 80000, "max_income": null,
+      "KYC_status": "Y", "App_Installed": "Y",
+      "Existing_Customer": "N", "Credit_score": 700,
+      "Social_Media_Active": null
     }
   },
   "campaign_goal": {
-    "objective": "Generate completed applications for XDeposit from four distinct customer segments, aiming for open rate > 40% and click rate > 14%."
+    "objective": "Generate completed applications for XDeposit from distinct customer segments, aiming for open rate > 40% and click rate > 14%."
   },
   "campaign_preferences": {
     "email_tone": "Friendly",
-    "campaign_name": "XDeposit_FourSeg_June2026",
-    "content_hints": "Guaranteed 8.5% returns per annum. Emails scheduled Tuesday/Wednesday 8–10 AM IST. Messaging distinct per segment."
+    "campaign_name": "XDeposit_June2026",
+    "content_hints": "Guaranteed 8.5% returns per annum. Emails scheduled Tuesday/Wednesday 8–10 AM IST."
   }
 }
 ```
@@ -148,87 +146,67 @@ Each group is an `AudienceGroup` object that maps directly to Customer DB fields
 1. LLM temperature `0.1` — deterministic, factual extraction
 2. Max tokens `2048` (supports long briefs up to ~15k chars)
 3. `_retry_with_backoff` — up to 3 attempts (1s → 2s → 4s)
-4. **Post-processing:** CTA sentinel removal, key_messages coercion, tone normalisation
-5. **Multi-group extraction:** LLM identifies distinct audience groups and maps each to the 15-field `AudienceGroup` schema; `null` = no filter for that field
+4. **Post-processing:** CTA sentinel removal, key_messages coercion, budget normalisation (`"$5k"` → `5000.0`), tone normalisation
+5. **Multi-group extraction:** LLM identifies distinct audience groups and maps each to the 10-field `AudienceGroup` schema; `null` = no filter for that field
 6. **Validation:** `product_name` is hard-required (raises `ValueError`); missing audience groups fall back to `"General audience"`
 
 ---
 
 ### 2. `CustomerSegmentationAgent`
 **File:** `backend/app/agents/segmentation.py`  
-**Purpose:** Translates the campaign's audience fields into concrete DB-field filter criteria, pre-selects the qualified candidate pool (AND logic — a customer must pass **every** specified filter), then segments that pool into 3–7 prioritised, named groups.
+**Purpose:** Reads the parser's `AudienceGroup` criteria directly, hard-filters the full customer pool (AND logic), then sub-segments the qualified pool by `App_Installed × Existing_Customer` status. **Pure Python — no LLM calls.**
 
 > **Key design principle:** filters are derived exclusively from what the brief parser extracted.  
-> If a Customer DB field has no matching criterion in the brief, **no filter is applied for that field** — all values are accepted.
+> If an `AudienceGroup` field is `null`, **no filter is applied for that field** — all customer values are accepted.
 
 ---
 
-#### Step 1 — Audience → DB Criteria Mapping
+#### Step 1 — Criteria Pre-computation
 
-The agent receives three natural-language strings from `parsed_data` and maps each to specific Customer document fields:
+For each audience group the agent pre-computes a `_GroupCriteria` object by reading the `AudienceGroup` dict directly:
 
-| Parsed field | Maps to Customer fields | Example value | Extracted criterion |
-|---|---|---|---|
-| `audience_who` | `Age`, `Gender`, `Occupation_type`, `Marital_Status` | `"Salaried professionals aged 25–45"` | Age: 25–45, Occupation_type: Full-time |
-| `audience_location` | `City` | `"Metro cities"` | City ∈ [Mumbai, Delhi, Bangalore, Chennai, Hyderabad, Kolkata] |
-| `audience_filters` | `Monthly_Income`, `Credit_score`, `App_Installed`, `Existing_Customer`, `KYC_status`, `Social_Media_Active`, `Kids_in_Household`, `Family_Size` | `"Monthly Income > ₹50,000, App Installed = Yes"` | Monthly_Income > 50000, App_Installed = "Y" |
+| `AudienceGroup` field | Customer DB field evaluated |
+|---|---|
+| `min_age` / `max_age` | `Age` (inclusive range) |
+| `gender` | `Gender` (exact match) |
+| `min_income` / `max_income` | `Monthly_Income` (range) |
+| `Credit_score` | `Credit_score ≥` (minimum threshold) |
+| `KYC_status` | `KYC_status` (exact match, `"Y"` or `"N"`) |
+| `Social_Media_Active` | `Social_Media_Active` (exact match) |
 
-The LLM interprets these strings and produces a structured `AudienceCriteria` object:
-
-```json
-{
-  "age_min": 25,
-  "age_max": 45,
-  "gender": [],
-  "occupation_types": ["Full-time"],
-  "cities": ["Mumbai", "Delhi", "Bangalore", "Chennai", "Hyderabad", "Kolkata"],
-  "min_income": 50000,
-  "max_income": null,
-  "min_credit_score": null,
-  "app_installed": "Y",
-  "existing_customer": null,
-  "kyc_status": null,
-  "social_media_active": null
-}
-```
-
-Fields left `null` or `[]` → **no filter applied** for that Customer field.
+`App_Installed` and `Existing_Customer` are **excluded** from this step — they drive sub-segmentation in Step 2.
 
 ---
 
-#### Step 2 — Candidate Pre-selection (AND logic)
+#### Step 2 — Hard Filter (AND logic, pure Python)
 
-Each customer in the full 5,000-record pool is evaluated against **all non-null** criteria simultaneously:
+Each customer in the full pool is tested against all non-null criteria simultaneously:
 
 ```
 customer qualifies  ⟺  ALL of the following are true:
-  age_min   ≤ customer.Age       ≤ age_max           (if age range specified)
-  customer.Gender         ∈ gender                   (if gender list specified)
-  customer.Occupation_type ∈ occupation_types        (if specified)
-  customer.City           ∈ cities                   (if specified)
-  customer.Monthly_Income ≥ min_income               (if specified)
-  customer.Monthly_Income ≤ max_income               (if specified)
-  customer.Credit_score  ≥ min_credit_score          (if specified)
-  customer.App_Installed  = app_installed             (if specified)
-  customer.Existing_Customer = existing_customer      (if specified)
-  customer.KYC_status     = kyc_status               (if specified)
-  customer.Social_Media_Active = social_media_active (if specified)
+  min_age ≤ customer.Age ≤ max_age             (if age range specified)
+  customer.Gender = gender                     (if specified)
+  customer.Monthly_Income ≥ min_income         (if specified)
+  customer.Monthly_Income ≤ max_income         (if specified)
+  customer.Credit_score  ≥ Credit_score        (if specified)
+  customer.KYC_status     = KYC_status         (if specified)
+  customer.Social_Media_Active = Social_Media_Active (if specified)
 ```
 
-Customers who fail **any** active criterion are excluded. The result is the **qualified candidate pool**.
+Customers failing **any** active criterion are excluded. The result is the **qualified candidate pool**.
 
 ---
 
-#### Step 3 — Segmentation within the Qualified Pool
+#### Step 3 — Sub-segmentation by App × Existing Customer
 
-The agent takes the qualified pool and divides it into 3–7 named segments. Segmentation is done on dimensions **within the already-filtered pool**, for example:
+The qualified pool is split into named sub-segments based on `App_Installed` and `Existing_Customer` flags from the `AudienceGroup`:
 
-- Activity level: `active` (Existing_Customer=Y + App_Installed=Y), `inactive` (Existing_Customer=Y only), `dormant` (non-customer)
-- Age sub-brackets within the qualified range
-- City tier groupings
-- Goal-driven prioritisation (conversion → prioritise `active` sub-group first)
+| Condition | Segments created |
+|---|---|
+| Both `null` (unspecified) | 3 segments: `active` (App=Y + Existing=Y), `inactive` (Existing=Y, any App), `dormant` (Existing=N) |
+| At least one specified | 1 segment filtered to customers matching the specified value(s) |
 
-The LLM names, describes, and assigns a `targeting_priority` to each segment.
+Each sub-segment gets a `targeting_priority` (1–5), `description`, and `applied_criteria` dict.
 
 ---
 
@@ -276,15 +254,13 @@ Each `SegmentOut`:
   "total_count": 5000,
   "filter_applied": {
     "age_min": 25, "age_max": 45,
-    "occupation_types": ["Full-time"],
-    "cities": ["Mumbai", "Delhi", "Bangalore", "Chennai", "Hyderabad", "Kolkata"],
     "min_income": 50000,
-    "app_installed": "Y"
+    "kyc_status": "Y"
   },
   "segments": [
     {
-      "segment_name": "salaried_metro_active",
-      "description": "High-income metro professionals aged 25–45 with app installed and existing relationship",
+      "segment_name": "Group_1_app_existing",
+      "description": "Qualified customers aged 25–45 with app installed and existing relationship",
       "customer_ids": ["CUST0042", "CUST0107", "..."],
       "size": 612,
       "targeting_priority": 5,
@@ -292,17 +268,26 @@ Each `SegmentOut`:
       "applied_criteria": {"Existing_Customer": "Y", "App_Installed": "Y"}
     },
     {
-      "segment_name": "salaried_metro_prospect",
-      "description": "Qualified prospects not yet customers — high acquisition potential",
+      "segment_name": "Group_1_no_app_existing",
+      "description": "Existing customers without the app — re-engagement opportunity",
       "customer_ids": ["CUST0201", "..."],
-      "size": 635,
+      "size": 385,
       "targeting_priority": 4,
+      "recommended_approach": "Drive app download first, then product sign-up.",
+      "applied_criteria": {"Existing_Customer": "Y", "App_Installed": "N"}
+    },
+    {
+      "segment_name": "Group_1_prospect",
+      "description": "Qualified prospects not yet customers — high acquisition potential",
+      "customer_ids": ["CUST0301", "..."],
+      "size": 250,
+      "targeting_priority": 3,
       "recommended_approach": "Welcome/introductory framing. Emphasise sign-up simplicity.",
       "applied_criteria": {"Existing_Customer": "N"}
     }
   ],
   "coverage_pct": 100.0,
-  "distribution": {"salaried_metro_active": 612, "salaried_metro_prospect": 635}
+  "distribution": {"Group_1_app_existing": 612, "Group_1_no_app_existing": 385, "Group_1_prospect": 250}
 }
 ```
 
@@ -310,37 +295,28 @@ Each `SegmentOut`:
 
 #### Internal Steps
 
-1. LLM temperature `0.2`, max tokens `2048`
-2. **Phase 1 — Criteria extraction (LLM call):**  
-   Parse `audience_who`, `audience_location`, `audience_filters` → `AudienceCriteria` object with explicit DB field mappings
-3. **Phase 2 — Hard filter (Python, no LLM):**  
-   Iterate all customers; retain only those satisfying every non-null criterion (AND logic)
-4. **Phase 3 — Segmentation (LLM call):**  
-   Send qualified pool summary + candidate sub-groups to LLM; LLM names, describes, prioritises segments
-5. Minimum segment size: 5% of qualified pool (micro-segments filtered)
-6. **Fallback:** if fewer than 10 customers qualify, skip field-level filters and fall back to `general_audience` with a logged warning
-7. **Segments persisted to MongoDB** (`segments` collection) with `segment_criteria` populated from `AudienceCriteria`
+1. **Pure Python — no LLM calls** (temperature `0.0`)
+2. **Step 1 — Pre-compute `_GroupCriteria`** per audience group: reads `AudienceGroup` dict fields directly
+3. **Step 2 — Hard filter** (AND logic): iterates all customers; retains only those satisfying every non-null criterion
+4. **Step 3 — Sub-segmentation**: splits qualified pool by `App_Installed × Existing_Customer` — 3-way split when both are unspecified, single filtered segment when at least one is specified
+5. All groups run **in parallel** via `asyncio.gather`
+6. **Fallback:** if no customers qualify for a group, produces a zero-size `general_audience` segment with a logged warning
+7. **Segments persisted to MongoDB** (`segments` collection)
 
 ---
 
-#### Customer DB Fields Available for Filtering
+#### Customer DB Fields Used for Filtering
 
-| DB Field | Type | Example values |
+| DB Field | Criterion | AudienceGroup field |
 |---|---|---|
-| `Age` | `int` | 18–80 |
-| `Gender` | `str` | `"Male"`, `"Female"`, `"Other"` |
-| `Marital_Status` | `str` | `"Married"`, `"Single"`, `"Divorced"`, `"Widowed"` |
-| `Family_Size` | `int` | 1–10 |
-| `Occupation` | `str` | `"Engineer"`, `"Doctor"`, ... |
-| `Occupation_type` | `str` | `"Full-time"`, `"Part-time"`, `"Self-employed"`, `"Retired"`, `"Student"` |
-| `Monthly_Income` | `int` | 0–500000 (₹) |
-| `KYC_status` | `str` | `"Y"`, `"N"` |
-| `City` | `str` | `"Mumbai"`, `"Delhi"`, `"Bangalore"`, ... |
-| `Kids_in_Household` | `int` | 0–5 |
-| `App_Installed` | `str` | `"Y"`, `"N"` |
-| `Existing_Customer` | `str` | `"Y"`, `"N"` |
-| `Credit_score` | `int` | 300–850 |
-| `Social_Media_Active` | `str` | `"Y"`, `"N"` |
+| `Age` | `≥ min_age` and `≤ max_age` | `min_age`, `max_age` |
+| `Gender` | exact match | `gender` |
+| `Monthly_Income` | `≥ min_income` and `≤ max_income` | `min_income`, `max_income` |
+| `Credit_score` | `≥ Credit_score` (minimum threshold) | `Credit_score` |
+| `KYC_status` | exact match (`"Y"` / `"N"`) | `KYC_status` |
+| `Social_Media_Active` | exact match (`"Y"` / `"N"`) | `Social_Media_Active` |
+| `App_Installed` | sub-segmentation only | `App_Installed` |
+| `Existing_Customer` | sub-segmentation only | `Existing_Customer` |
 
 ---
 
@@ -797,7 +773,7 @@ START
 | `campaigns` | `Campaign` | Campaign document with `parsed_data`, `status`, `segments` (name list) |
 | `campaign_variants` | `CampaignVariant` | Email variant per segment — `subject_line`, `email_body`, `variant_id`, `mock_campaign_id` |
 | `customers` | `Customer` | 18-field customer records synced from Mock API |
-| `segments` | `Segment` | Rich segment documents — `customer_ids`, `segment_criteria`, `description`, `size` |
+| `segments` | `Segment` | Rich segment documents — `customer_ids`, `segment_criteria` (`age_range`, `gender`, `min_income`, `max_income`, `min_credit_score`, `app_installed`, `social_media_active`, `existing_customer`), `description`, `size` |
 | `metrics` | `Metrics` | Variant performance — `open_rate`, `click_rate`, `click_through_rate` (stored 0–1) |
 | `workflow_states` | `CampaignStateModel` | Full `CampaignState` snapshot per campaign |
 | `workflow_checkpoints` | — | State snapshot before each node attempt |
@@ -920,10 +896,10 @@ No created_by field — campaigns are system-owned.
       Merges LLM output with user-confirmed parsed_data (user values win)
     │
     │  + All customers from Mock API (5,000 records) or MongoDB cache
-    ▼  segmentation node — CustomerSegmentationAgent
-      Phase 1: Reads target_audience groups (AudienceGroup dicts) → filter criteria
-      Phase 2: Hard filter (Python, AND logic) → qualified candidate pool
-      Phase 3: Sub-segmentation (LLM) → named segments with customer_ids, priority
+    ▼  segmentation node — CustomerSegmentationAgent (pure Python, no LLM)
+      Step 1: Reads AudienceGroup fields directly → _GroupCriteria per group
+      Step 2: Hard filter (AND logic) → qualified candidate pool per group
+      Step 3: Sub-segmentation by App_Installed × Existing_Customer → named segments with customer_ids, priority
     │
     ▼  strategy node — CampaignStrategyAgent
       campaign_goal.objective resolved to enum via _safe_goal()

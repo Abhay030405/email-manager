@@ -319,8 +319,30 @@ async def _execute_node_with_retries(
 	return failed_state
 
 
+def _is_parsed_data_confirmed(parsed_data: dict) -> bool:
+	"""Return True when the user has already confirmed parsed data from the wizard.
+
+	We consider data confirmed when both product_details.product_name and
+	target_audience are present and non-empty — the minimum the wizard requires
+	before the user can proceed to run the workflow.
+	"""
+	if not parsed_data:
+		return False
+	product_name = (parsed_data.get("product_details") or {}).get("product_name", "")
+	target_audience = parsed_data.get("target_audience") or {}
+	return bool(product_name and target_audience)
+
+
 async def parse_brief_node(state: CampaignState) -> CampaignState:
-	"""Parse campaign brief using CampaignBriefParserAgent."""
+	"""Parse campaign brief using CampaignBriefParserAgent.
+
+	Skipped entirely when the user has already confirmed parsed data via the
+	wizard — avoids a redundant LLM call and preserves user edits.
+	"""
+	existing = dict(state.get("parsed_data") or {})
+	if _is_parsed_data_confirmed(existing):
+		logger.info("parse_brief_node: user-confirmed data present — skipping LLM parse")
+		return state
 
 	async def _op(current_state: CampaignState) -> CampaignState:
 		agent_cls = _resolve_agent_class(
@@ -338,22 +360,12 @@ async def parse_brief_node(state: CampaignState) -> CampaignState:
 			else {"brief_text": current_state["campaign_brief"]},
 		)
 		next_state = CampaignState(**dict(current_state))
-		llm_dict = parsed_data if isinstance(parsed_data, dict) else dict(parsed_data)
+		next_state["parsed_data"] = parsed_data if isinstance(parsed_data, dict) else dict(parsed_data)
 
-		# Merge: pre-supplied (user-confirmed) values win over LLM extraction.
-		# Any field the user left empty falls back to what the LLM extracted.
-		existing = dict(current_state.get("parsed_data") or {})
-		merged: dict[str, Any] = {**llm_dict}
-		for key, user_val in existing.items():
-			if user_val not in (None, "", []):
-				merged[key] = user_val
-		next_state["parsed_data"] = merged
-
-		# Persist the rich parsed data back to the campaign document
 		campaign_repo = CampaignRepository(MongoDB.get_db())
 		await campaign_repo.update(
 			current_state["campaign_id"],
-			{"parsed_data": merged},
+			{"parsed_data": next_state["parsed_data"]},
 		)
 		return next_state
 
