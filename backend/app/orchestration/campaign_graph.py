@@ -486,7 +486,7 @@ async def segmentation_node(state: CampaignState) -> CampaignState:
 			if hasattr(agent, "segment_customers")
 			else {
 				"customers": current_state.get("customers", []),
-				"target_audience": _target_audience_summary(parsed_data.get("target_audience", {})),
+				"target_audience": parsed_data.get("target_audience", {}),
 				"campaign_goal": _safe_goal(parsed_data.get("campaign_goal")),
 			},
 		)

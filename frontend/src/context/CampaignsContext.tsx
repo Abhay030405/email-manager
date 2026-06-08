@@ -1,3 +1,5 @@
+'use client';
+
 import {
   createContext,
   useContext,
@@ -41,13 +43,15 @@ function splitTags(raw: string): string[] {
     .filter(Boolean);
 }
 
-function buildContentHints(pd: Partial<ApiCampaign["parsed_data"]>): string[] {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function buildContentHints(pd: any): string[] {
   const hints: string[] = [...(pd.key_messages ?? [])];
   if (pd.constraints?.trim()) hints.push(...splitTags(pd.constraints));
   return hints.filter(Boolean);
 }
 
-function buildAudienceTags(pd: Partial<ApiCampaign["parsed_data"]>): string[] {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function buildAudienceTags(pd: any): string[] {
   const tags: string[] = [];
   if (pd.audience_who) tags.push(pd.audience_who.trim());
   if (pd.audience_location) tags.push(...splitTags(pd.audience_location));
@@ -58,7 +62,8 @@ function buildAudienceTags(pd: Partial<ApiCampaign["parsed_data"]>): string[] {
 // ── Adapter ────────────────────────────────────────────────────────────────
 
 function adaptCampaign(api: ApiCampaign): Campaign {
-  const pd = api.parsed_data ?? {};
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const pd = (api.parsed_data ?? {}) as any;
   const name =
     pd.campaign_name?.trim() ||
     pd.product_name?.trim() ||
@@ -94,7 +99,7 @@ function adaptCampaign(api: ApiCampaign): Campaign {
     audienceTags: buildAudienceTags(pd),
     contentHints: buildContentHints(pd),
     brief: api.campaign_brief,
-    goal: pd.campaign_objective || pd.campaign_goal || "—",
+    goal: pd.campaign_objective || pd.campaign_goal?.objective || pd.campaign_goal || "—",
     budget,
     scheduledSend,
     status: STATUS_MAP[api.status] ?? "draft",

@@ -15,6 +15,9 @@ export default {
     extend: {
       fontFamily: {
         sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+        display: ['Space Grotesk', 'system-ui', '-apple-system', 'sans-serif'],
+        mono: ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'monospace'],
+        gmail: ["'Google Sans'", 'Roboto', 'Arial', 'sans-serif'],
       },
       colors: {
         border: "hsl(var(--border))",
@@ -66,6 +69,34 @@ export default {
           amber: "hsl(var(--stat-amber))",
           blue: "hsl(var(--stat-blue))",
           purple: "hsl(var(--stat-purple))",
+        },
+        /* ── Gmail / Email-preview UI palette ─────────────────────────────── */
+        gmail: {
+          bg: "var(--gmail-bg)",
+          surface: "var(--gmail-surface)",
+          primary: "var(--gmail-text-primary)",
+          secondary: "var(--gmail-text-secondary)",
+          logo: "var(--gmail-text-logo)",
+          border: "var(--gmail-border)",
+          /* RGB-channel format enables the /opacity modifier (e.g. /60) */
+          hover: "rgb(var(--gmail-hover) / <alpha-value>)",
+          "search-hover": "rgb(var(--gmail-search-hover) / <alpha-value>)",
+          blue: "var(--gmail-blue)",
+          "blue-dark": "var(--gmail-blue-dark)",
+          "blue-light": "var(--gmail-blue-light)",
+          "search-bg": "var(--gmail-search-bg)",
+          "compose-bg": "var(--gmail-compose-bg)",
+          "compose-hover": "var(--gmail-compose-hover)",
+          "compose-text": "var(--gmail-compose-text)",
+          "active-bg": "var(--gmail-active-bg)",
+          "active-icon": "var(--gmail-active-icon)",
+          "reply-border": "var(--gmail-reply-border)",
+        },
+        /* ── Content-hint chip (violet palette) ───────────────────────────── */
+        "content-hint": {
+          border: "hsl(var(--content-hint-border))",
+          bg: "hsl(var(--content-hint-bg))",
+          text: "hsl(var(--content-hint-text))",
         },
       },
       borderRadius: {

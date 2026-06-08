@@ -1,0 +1,238 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* ── Core design system (Obsidian — Dark Tech) ──────────────────────── */
+    --background: 222 28% 4%;
+    --foreground: 210 20% 92%;
+
+    --card: 222 24% 7%;
+    --card-foreground: 210 20% 92%;
+
+    --popover: 222 24% 8%;
+    --popover-foreground: 210 20% 92%;
+
+    --primary: 34 72% 52%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 222 22% 11%;
+    --secondary-foreground: 210 20% 92%;
+
+    --muted: 222 20% 10%;
+    --muted-foreground: 215 12% 50%;
+
+    --accent: 222 20% 13%;
+    --accent-foreground: 210 20% 92%;
+
+    --destructive: 0 72% 52%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 222 20% 14%;
+    --input: 222 20% 12%;
+    --ring: 34 72% 52%;
+
+    --radius: 0.5rem;
+
+    /* ── Sidebar ─────────────────────────────────────────────────────────── */
+    --sidebar-background: 222 28% 5%;
+    --sidebar-foreground: 215 10% 55%;
+    --sidebar-primary: 34 72% 52%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 222 22% 10%;
+    --sidebar-accent-foreground: 210 20% 92%;
+    --sidebar-border: 222 20% 11%;
+    --sidebar-ring: 34 72% 52%;
+
+    --header-background: 222 28% 5%;
+
+    /* ── Stat / data-viz brand palette ───────────────────────────────────── */
+    --stat-green: 158 55% 38%;
+    --stat-amber: 34 72% 52%;
+    --stat-blue: 214 80% 58%;
+    --stat-purple: 258 68% 62%;
+
+    /* ── Decorative gradients & shadows ──────────────────────────────────── */
+    --hero-gradient: radial-gradient(900px 600px at 20% -5%, hsl(34 72% 52% / 0.09), transparent 65%),
+      radial-gradient(700px 500px at 85% 5%, hsl(214 80% 58% / 0.06), transparent 65%);
+    --shadow-soft: 0 1px 3px hsl(0 0% 0% / 0.5), 0 8px 24px -8px hsl(0 0% 0% / 0.7);
+    --shadow-glow: 0 20px 60px -20px hsl(34 72% 52% / 0.4);
+    --shadow-card-hover: 0 0 0 1px hsl(34 72% 52% / 0.18), 0 8px 32px -8px hsl(0 0% 0% / 0.6);
+
+    /* ── Chart tokens ────────────────────────────────────────────────────── */
+    --chart-color-1: var(--stat-blue);
+    --chart-color-2: var(--stat-green);
+    --chart-color-3: var(--muted-foreground);
+    --chart-color-4: var(--stat-amber);
+    --chart-axis: var(--muted-foreground);
+
+    /* ── Content-hint chip ───────────────────────────────────────────────── */
+    --content-hint-border: 258 40% 28%;
+    --content-hint-bg: 258 30% 12%;
+    --content-hint-text: 258 65% 72%;
+
+    /* ── Gmail / Email-preview UI ────────────────────────────────────────── */
+    --gmail-bg: #060810;
+    --gmail-surface: #0d0f1c;
+    --gmail-text-primary: #e2e4ec;
+    --gmail-text-secondary: #9093a8;
+    --gmail-text-logo: #7b7e93;
+    --gmail-border: #181a2e;
+    --gmail-blue: #4f8ef7;
+    --gmail-blue-dark: #3a6fd8;
+    --gmail-blue-light: #1a2340;
+    --gmail-search-bg: #10121e;
+    --gmail-compose-bg: #d4952c;
+    --gmail-compose-hover: #c4851c;
+    --gmail-compose-text: #ffffff;
+    --gmail-active-bg: #2a1020;
+    --gmail-active-icon: #f87171;
+    --gmail-reply-border: #181a2e;
+
+    --gmail-hover: 24 26 46;
+    --gmail-search-hover: 26 35 70;
+    --gmail-search-shadow: 0 1px 6px 2px rgba(0, 0, 0, 0.6);
+
+    --gmail-font: 'Space Grotesk', 'Google Sans', Roboto, Arial, sans-serif;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Space Grotesk', system-ui, -apple-system, sans-serif;
+    letter-spacing: -0.02em;
+  }
+}
+
+@layer utilities {
+  /* ── Background patterns ─────────────────────────────────────────────── */
+  .bg-hero {
+    background-image: var(--hero-gradient);
+  }
+
+  .bg-grid {
+    background-image:
+      linear-gradient(hsl(210 20% 92% / 0.03) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(210 20% 92% / 0.03) 1px, transparent 1px);
+    background-size: 48px 48px;
+  }
+
+  .bg-dot-grid {
+    background-image: radial-gradient(hsl(210 20% 92% / 0.12) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+
+  /* ── Gradient text ───────────────────────────────────────────────────── */
+  .gradient-text {
+    background: linear-gradient(
+      135deg,
+      hsl(210 30% 97%) 0%,
+      hsl(34 80% 68%) 50%,
+      hsl(26 78% 54%) 100%
+    );
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .gradient-text-subtle {
+    background: linear-gradient(
+      120deg,
+      hsl(210 20% 80%) 0%,
+      hsl(34 65% 60%) 100%
+    );
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* ── Shadows ─────────────────────────────────────────────────────────── */
+  .shadow-soft {
+    box-shadow: var(--shadow-soft);
+  }
+  .shadow-glow {
+    box-shadow: var(--shadow-glow);
+  }
+  .shadow-card-hover {
+    box-shadow: var(--shadow-card-hover);
+  }
+
+  /* ── Typography ──────────────────────────────────────────────────────── */
+  .text-balance {
+    text-wrap: balance;
+  }
+  .font-gmail {
+    font-family: var(--gmail-font);
+  }
+
+  /* ── Animated glow border ────────────────────────────────────────────── */
+  .glow-border {
+    box-shadow: 0 0 0 1px hsl(var(--primary) / 0.25), 0 0 16px -4px hsl(var(--primary) / 0.15);
+  }
+
+  /* ── Agent status dot animation ──────────────────────────────────────── */
+  .animate-pulse-dot {
+    animation: pulse-dot 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+  .animate-blink {
+    animation: blink 1.2s step-end infinite;
+  }
+
+  /* ── Header animations ───────────────────────────────────────────────── */
+  .animate-header-scan {
+    animation: header-scan 4s ease-in-out infinite;
+  }
+
+  /* ── Logo spinning ring ──────────────────────────────────────────────── */
+  .logo-ring {
+    background: conic-gradient(
+      from 0deg at 50% 50%,
+      transparent 0deg,
+      hsl(34deg 72% 52% / 0.85) 80deg,
+      hsl(34deg 72% 65% / 0.4) 130deg,
+      transparent 180deg
+    );
+    animation: spin-ring 4s linear infinite;
+  }
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.85); }
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes spin-ring {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes header-scan {
+  0%   { transform: translateX(-100%); opacity: 0; }
+  12%  { opacity: 1; }
+  88%  { opacity: 1; }
+  100% { transform: translateX(500%); opacity: 0; }
+}

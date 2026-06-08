@@ -1,3 +1,5 @@
+'use client';
+
 import { Fragment, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,8 +13,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
 
-const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 interface AudienceGroup {
   min_age: number | null;
@@ -62,8 +65,8 @@ const AudienceGroupCard = ({ name, group }: { name: string; group: AudienceGroup
     (k) => group[k] !== null && group[k] !== undefined
   );
   return (
-    <div className="rounded-md border bg-muted/20 p-3 space-y-2">
-      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{name}</p>
+    <div className="rounded-md border border-border/40 bg-secondary/20 p-3 space-y-2">
+      <p className="font-mono text-[10px] text-muted-foreground/60 uppercase tracking-widest">{name}</p>
       {fields.length === 0 ? (
         <p className="text-xs text-muted-foreground italic">No specific criteria extracted</p>
       ) : (
@@ -85,35 +88,38 @@ const AudienceGroupCard = ({ name, group }: { name: string; group: AudienceGroup
 
 const STEPS = ["Product Details", "Target Audience", "Campaign Goal", "Campaign Preferences"];
 
-const stepCircleClass = (i: number, currentStep: number) => {
-  if (i < currentStep) return "bg-primary border-primary text-primary-foreground";
-  if (i === currentStep) return "border-primary text-primary bg-background";
-  return "border-muted text-muted-foreground bg-background";
-};
-
-const stepLabelClass = (i: number, currentStep: number) => {
-  if (i === currentStep) return "text-primary font-medium";
-  if (i < currentStep) return "text-foreground";
-  return "text-muted-foreground";
-};
-
 const Stepper = ({ currentStep }: { currentStep: number }) => (
-  <div className="px-4 sm:px-6 pt-6 pb-4 border-b">
-    <div className="flex items-start">
+  <div className="px-4 sm:px-6 pt-5 pb-4 border-b border-border/40">
+    <div className="flex items-center">
       {STEPS.map((label, i) => (
         <Fragment key={label}>
-          <div className="flex flex-col items-center">
+          <div className="flex flex-col items-center shrink-0">
+            {/* Step number / check */}
             <div
-              className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold border-2 shrink-0 ${stepCircleClass(i, currentStep)}`}
+              className={cn(
+                "w-7 h-7 rounded-md flex items-center justify-center font-mono text-xs font-medium border transition-colors",
+                i < currentStep
+                  ? "bg-primary border-primary text-white"
+                  : i === currentStep
+                  ? "border-primary/60 text-primary bg-primary/8"
+                  : "border-border/50 text-muted-foreground/50 bg-background"
+              )}
             >
-              {i < currentStep ? "✓" : i + 1}
+              {i < currentStep ? "✓" : String(i + 1).padStart(2, "0")}
             </div>
-            <span className={`mt-2 text-xs text-center leading-tight w-20 ${stepLabelClass(i, currentStep)}`}>
+            {/* Label */}
+            <span
+              className={cn(
+                "mt-1.5 font-mono text-[9px] text-center leading-tight w-16 uppercase tracking-wider",
+                i === currentStep ? "text-primary" : i < currentStep ? "text-foreground/70" : "text-muted-foreground/40"
+              )}
+            >
               {label}
             </span>
           </div>
+          {/* Connector */}
           {i < STEPS.length - 1 && (
-            <div className={`flex-1 h-0.5 mt-4 mx-1 ${i < currentStep ? "bg-primary" : "bg-muted"}`} />
+            <div className={cn("flex-1 h-px mx-1.5 mb-4", i < currentStep ? "bg-primary/60" : "bg-border/40")} />
           )}
         </Fragment>
       ))}
@@ -147,7 +153,7 @@ const ReviewRow = ({ label, value }: { label: string; value: string }) =>
 
 const ReviewSection = ({ title, children }: { title: string; children: React.ReactNode }) => (
   <div className="space-y-3">
-    <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground border-b pb-1">{title}</h3>
+    <h3 className="font-mono text-[10px] font-medium uppercase tracking-widest text-muted-foreground/60 border-b border-border/40 pb-1.5">{title}</h3>
     <div className="space-y-3">{children}</div>
   </div>
 );
@@ -313,10 +319,10 @@ const CampaignForm = () => {
   // ── Phase 3: Review ──────────────────────────────────────────────────────
   if (phase === "review") {
     return (
-      <div className="bg-card border rounded-lg">
-        <div className="px-4 sm:px-6 py-5 border-b">
-          <h2 className="text-base font-semibold text-foreground">Review Campaign Details</h2>
-          <p className="text-xs text-muted-foreground mt-1">Check everything before generating the strategy.</p>
+      <div className="bg-card border border-border/60 rounded-lg overflow-hidden">
+        <div className="px-4 sm:px-6 py-4 border-b border-border/40 bg-secondary/20">
+          <h2 className="font-display font-semibold text-foreground">Review Campaign Details</h2>
+          <p className="font-mono text-[11px] text-muted-foreground/60 mt-0.5">Check everything before generating the strategy.</p>
         </div>
 
         <div className="px-4 sm:px-6 py-6 space-y-6">
@@ -372,9 +378,9 @@ const CampaignForm = () => {
   // ── Phase 1: Campaign Brief ──────────────────────────────────────────────
   if (phase === "brief") {
     return (
-      <div className="bg-card border rounded-lg">
-        <div className="px-4 sm:px-6 py-5 border-b">
-          <h2 className="text-base font-semibold text-foreground mb-4">Campaign Brief</h2>
+      <div className="bg-card border border-border/60 rounded-lg overflow-hidden">
+        <div className="px-4 sm:px-6 py-4 border-b border-border/40 bg-secondary/20">
+          <h2 className="font-display font-semibold text-foreground mb-4">Campaign Brief</h2>
           <div className="space-y-4">
             <div className="rounded-md border border-muted/50 bg-muted/20 px-4 py-3 text-xs text-muted-foreground/70 space-y-3">
               <p className="font-medium text-muted-foreground">What a good Campaign Brief should include:</p>
@@ -449,7 +455,7 @@ const CampaignForm = () => {
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className="w-full rounded-md border border-dashed border-muted-foreground/40 px-4 py-3 text-sm text-muted-foreground hover:border-muted-foreground/70 hover:text-foreground transition-colors text-center"
+                  className="w-full rounded-md border border-dashed border-border/50 px-4 py-3 font-mono text-xs text-muted-foreground hover:border-primary/30 hover:text-foreground transition-colors text-center"
                 >
                   Upload the Campaign brief
                 </button>
@@ -475,7 +481,7 @@ const CampaignForm = () => {
 
   // ── Phase 2: Step wizard ─────────────────────────────────────────────────
   return (
-    <form className="bg-card border rounded-lg">
+    <form className="bg-card border border-border/60 rounded-lg overflow-hidden">
       <Stepper currentStep={step} />
 
       <div className="px-4 sm:px-6 py-6 space-y-5">

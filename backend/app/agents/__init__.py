@@ -14,12 +14,7 @@ Exports all five core agents so they can be imported directly from
 
 from app.agents.base_agent import BaseAgent
 from app.agents.brief_parser import CampaignBriefParserAgent, BriefInput, ParsedBrief
-from app.agents.segmentation import (
-    CustomerSegmentationAgent,
-    SegmentationInput,
-    SegmentOut,
-    SegmentationResult,
-)
+from app.agents.segmentation import CustomerSegmentationAgent, SegmentOut
 from app.agents.strategy import (
     CampaignStrategyAgent,
     StrategyInput,
@@ -41,9 +36,7 @@ __all__ = [
     "ParsedBrief",
     # Segmentation
     "CustomerSegmentationAgent",
-    "SegmentationInput",
     "SegmentOut",
-    "SegmentationResult",
     # Strategy
     "CampaignStrategyAgent",
     "StrategyInput",
