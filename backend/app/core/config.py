@@ -80,6 +80,22 @@ class Settings(BaseSettings):
             self.MONGODB_DB_NAME = self.DATABASE_NAME
         return self
 
+    @field_validator("ALLOWED_ORIGINS", "ALLOWED_METHODS", "ALLOWED_HEADERS", mode="before")
+    @classmethod
+    def _parse_string_list(cls, v: Any) -> Any:
+        """Accept both JSON array strings and comma-separated strings.
+
+        DO App Platform injects env vars as raw strings, while .env files go
+        through dotenv parsing. Both formats need to produce a list[str].
+        """
+        if isinstance(v, str):
+            stripped = v.strip()
+            if stripped.startswith("["):
+                import json as _json
+                return _json.loads(stripped)
+            return [item.strip() for item in stripped.split(",") if item.strip()]
+        return v
+
     @field_validator("ENVIRONMENT")
     @classmethod
     def _validate_environment(cls, v: str) -> str:

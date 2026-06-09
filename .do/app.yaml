@@ -82,13 +82,13 @@ services:
       # Still set this so /docs (Swagger UI) and direct API calls work.
       # After first deploy, replace the placeholder with your actual DO app URL.
       - key: ALLOWED_ORIGINS
-        value: '["https://autonomail.dev","https://www.autonomail.dev","http://localhost:8080","http://localhost:3000"]'
+        value: "https://autonomail.dev,https://www.autonomail.dev,http://localhost:8080,http://localhost:3000"
       - key: ALLOW_CREDENTIALS
         value: "true"
       - key: ALLOWED_METHODS
-        value: '["GET","POST","PUT","DELETE","PATCH","OPTIONS"]'
+        value: "GET,POST,PUT,DELETE,PATCH,OPTIONS"
       - key: ALLOWED_HEADERS
-        value: '["*"]'
+        value: "*"
 
       # ── Security ───────────────────────────────────────────────────────────
       # Generate: openssl rand -hex 32
