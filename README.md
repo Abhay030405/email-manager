@@ -1,9 +1,20 @@
-# CampaignX — AI Multi-Agent Marketing Automation Platform
+# Autonomail — Autonomous Campaign Engine
 
-An autonomous AI multi-agent system that plans, executes, and optimizes email marketing campaigns. Specialized AI agents collaborate through a directed LangGraph execution graph to parse campaign briefs, segment customers, generate strategy, create personalized email content, and execute campaigns — with a human-in-the-loop approval gate before any emails are sent.
+An autonomous AI multi-agent system that plans, executes, and optimizes email marketing campaigns. Eight specialized AI agents collaborate through a directed LangGraph execution graph to parse campaign briefs, segment customers via real RFM clustering, generate strategy, create personalized email content via parallel fan-out, and execute campaigns — with a human-in-the-loop approval gate before any emails are sent.
 
-**Live:** [https://autonomail.dev](https://autonomail.dev)  
-**Author:** Abhay Agarwal
+**Live:** [https://autonomail.dev](https://autonomail.dev)
+
+---
+
+**Built by Abhay Agarwal**  
+MNNIT Allahabad · Jhansi, Uttar Pradesh, India
+
+| | |
+|---|---|
+| Email | [officialabhay030405@gmail.com](mailto:officialabhay030405@gmail.com) |
+| Phone | [+91-8887752006](tel:+918887752006) |
+| Portfolio | [itsabhay.me](https://itsabhay.me) |
+| GitHub | [github.com/Abhay030405](https://github.com/Abhay030405) |
 
 ---
 
@@ -212,7 +223,7 @@ LLM_MODEL=google/gemini-2.5-flash-lite
 
 # MongoDB Atlas
 MONGODB_URI=mongodb+srv://user:pass@cluster.mongodb.net/
-DATABASE_NAME=campaignx
+DATABASE_NAME=autonomail
 
 # Mock Campaign API
 MOCK_CAMPAIGN_API_URL=https://mock-campaign-api.onrender.com
@@ -256,6 +267,7 @@ doctl apps update <APP_ID> --spec .do/app.yaml
 
 ---
 
-## License
+## Author
 
-Built by Abhay Agarwal.
+**Abhay Agarwal** · MNNIT Allahabad · Jhansi, Uttar Pradesh, India  
+[itsabhay.me](https://itsabhay.me) · [github.com/Abhay030405](https://github.com/Abhay030405) · [officialabhay030405@gmail.com](mailto:officialabhay030405@gmail.com)
