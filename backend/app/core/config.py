@@ -70,11 +70,31 @@ class Settings(BaseSettings):
     # ── Derived / resolved properties ────────────────────────────────
 
     def _split_cors_field(self, value: str) -> list[str]:
-        """Parse a CORS field from either JSON array or comma-separated string."""
+        """Parse a CORS field — handles JSON array, comma-separated, and malformed JSON."""
+        import json as _json
+        import re as _re
+
         v = value.strip()
+
+        # 1. Try clean JSON parse first
         if v.startswith("["):
-            import json as _json
-            return _json.loads(v)
+            try:
+                result = _json.loads(v)
+                if isinstance(result, list):
+                    return [str(s).strip() for s in result if str(s).strip()]
+            except Exception:
+                pass
+
+            # 2. JSON failed — extract anything that looks like a URL or a plain token
+            urls = _re.findall(r'https?://[^\s,\]"\']+', v)
+            if urls:
+                return urls
+
+            # 3. Last resort: strip brackets/quotes and split by comma
+            inner = v.lstrip("[").rstrip("]")
+            return [s.strip().strip('"').strip("'") for s in inner.split(",")
+                    if s.strip().strip('"').strip("'")]
+
         return [item.strip() for item in v.split(",") if item.strip()]
 
     @property
