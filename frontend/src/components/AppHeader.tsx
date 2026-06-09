@@ -28,40 +28,37 @@ const AppHeader = () => {
   return (
     <header className="sticky top-0 z-40">
       <div
-        className="relative h-[68px] backdrop-blur-3xl"
+        className="relative h-[82px] backdrop-blur-3xl"
         style={{ backgroundColor: "hsl(222 30% 3% / 0.92)" }}
       >
-        {/* Diagonal colour-wash: gold ← → blue */}
+        {/* Diagonal colour-wash: gold �? → blue */}
         <div className="absolute inset-0 bg-gradient-to-r from-primary/[0.07] via-transparent to-stat-blue/[0.04] pointer-events-none" />
 
         {/* Top accent line */}
         <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
 
-        <div className="relative h-full max-w-7xl mx-auto px-4 sm:px-6 flex items-center justify-between gap-4">
+        <div className="relative h-full max-w-screen-2xl mx-auto px-4 sm:px-6 flex items-center justify-between gap-4">
 
           {/* ── Logo ────────────────────────────────────────────────────── */}
           <Link href="/" className="flex items-center gap-3 group shrink-0">
             {/* Spinning-ring icon */}
-            <div className="relative h-8 w-8">
+            <div className="relative h-10 w-10">
               {/* Blur glow — expands on hover */}
-              <div className="absolute inset-0 scale-150 rounded-lg bg-primary/0 group-hover:bg-primary/25 blur-[8px] transition-all duration-500 pointer-events-none" />
+              <div className="absolute inset-0 scale-150 rounded-xl bg-primary/0 group-hover:bg-primary/25 blur-[10px] transition-all duration-500 pointer-events-none" />
               {/* Rotating conic-gradient ring */}
-              <div className="absolute inset-[-2px] rounded-[10px] logo-ring opacity-35 group-hover:opacity-75 transition-opacity duration-300" />
+              <div className="absolute inset-[-2px] rounded-[12px] logo-ring opacity-35 group-hover:opacity-75 transition-opacity duration-300" />
               {/* Icon container */}
               <div
-                className="absolute inset-0 rounded-lg border border-primary/25 flex items-center justify-center z-10"
+                className="absolute inset-0 rounded-xl border border-primary/25 flex items-center justify-center z-10"
                 style={{ backgroundColor: "hsl(222 30% 4%)" }}
               >
-                <Bot className="h-3.5 w-3.5 text-primary" />
+                <Bot className="h-5 w-5 text-primary" />
               </div>
             </div>
 
             <div className="leading-none">
-              <div className="font-display font-bold text-[17px] text-foreground tracking-tight">
-                NEXUS
-              </div>
-              <div className="font-mono text-[10px] text-primary/50 uppercase tracking-[0.18em] mt-[3px]">
-                AUTONOMOUS CAMPAIGN ENGINE
+              <div className="font-display font-bold text-[19px] text-foreground tracking-tight">
+                Autonomail
               </div>
             </div>
           </Link>
@@ -152,7 +149,7 @@ const AppHeader = () => {
         className="md:hidden border-b border-border/20 backdrop-blur-xl"
         style={{ backgroundColor: "hsl(222 30% 3% / 0.95)" }}
       >
-        <div className="max-w-7xl mx-auto px-4 flex items-center justify-between py-2">
+        <div className="max-w-screen-2xl mx-auto px-4 flex items-center justify-between py-2">
           <div className="flex items-center gap-1">
             {navItems.map((item) => (
               <Link

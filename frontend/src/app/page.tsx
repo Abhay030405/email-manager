@@ -2,7 +2,6 @@ import Link from "next/link";
 import {
   ArrowRight,
   Bot,
-  ChevronRight,
   Zap,
   Mail,
   Users,
@@ -21,18 +20,13 @@ import {
   Cpu,
   Layers,
   TrendingUp,
+  Phone,
+  MapPin,
 } from "lucide-react";
 import AppHeader from "@/components/AppHeader";
 import { Button } from "@/components/ui/button";
 
 // ── Data ───────────────────────────────────────────────────────────────────
-const stats = [
-  { value: "8", label: "Specialized agents" },
-  { value: "LangGraph", label: "Orchestration" },
-  { value: "MongoDB", label: "State persistence" },
-  { value: "FastAPI", label: "Backend" },
-];
-
 const agentLog = [
   { name: "brief-parser-agent",  status: "done",    output: "Product: Winter Collection · Goal: Sales Conversion · CTA extracted",               color: "text-stat-green",        bg: "bg-stat-green/10 text-stat-green",   icon: "✓" },
   { name: "segmentation-agent",  status: "done",    output: "RFM scored · k=4 clusters · silhouette=0.61 · 4 segments validated",                color: "text-stat-green",        bg: "bg-stat-green/10 text-stat-green",   icon: "✓" },
@@ -61,7 +55,7 @@ const pipeline = [
   { id: "03", label: "Strategy",       type: "node",      color: "border-stat-amber/50 text-stat-amber",  bg: "bg-stat-amber/8" },
   { id: "04", label: "Quality Gate",   type: "gate",      color: "border-stat-green/50 text-stat-green",  bg: "bg-stat-green/8" },
   { id: "05", label: "Content Gen ×N", type: "parallel",  color: "border-primary/50 text-primary",        bg: "bg-primary/8" },
-  { id: "06", label: "Approval ⏸",    type: "interrupt", color: "border-stat-amber/50 text-stat-amber",  bg: "bg-stat-amber/8" },
+  { id: "06", label: "Approval �?�",    type: "interrupt", color: "border-stat-amber/50 text-stat-amber",  bg: "bg-stat-amber/8" },
   { id: "07", label: "Execution",      type: "node",      color: "border-stat-green/50 text-stat-green",  bg: "bg-stat-green/8" },
   { id: "08", label: "Monitoring",     type: "node",      color: "border-stat-blue/50 text-stat-blue",    bg: "bg-stat-blue/8" },
   { id: "09", label: "Perf Gate",      type: "gate",      color: "border-stat-green/50 text-stat-green",  bg: "bg-stat-green/8" },
@@ -76,7 +70,7 @@ const capabilities = [
     border: "border-stat-blue/20",
     title: "Parallel Fan-Out / Fan-In",
     subtitle: "LangGraph Send API",
-    desc: "Instead of generating content for each segment sequentially, NEXUS uses LangGraph's Send API to fan out one Content Gen task per segment concurrently. Four segments in 15 seconds instead of 60. Architecturally correct — segments are independent.",
+    desc: "Instead of generating content for each segment sequentially, Autonomail uses LangGraph's Send API to fan out one Content Gen task per segment concurrently. Four segments in 15 seconds instead of 60. Architecturally correct — segments are independent.",
     lines: [
       { text: "Fan-out: Strategy → Send([seg-A, seg-B, seg-C, seg-D])", color: "text-stat-blue" },
       { text: "  ├─ seg-A: Content Gen ✓  spam: 0.8  CTR: 3.2%", color: "text-stat-green" },
@@ -135,7 +129,7 @@ const capabilities = [
       { text: "  ├─ segmentation-agent  12s  ✓ silhouette=0.61", color: "text-stat-green" },
       { text: "  ├─ strategy-agent      8s   ✓ quality gate pass", color: "text-stat-green" },
       { text: "  ├─ content-gen ×4     18s   ✓ parallel fan-out", color: "text-stat-green" },
-      { text: "  ├─ approval            14h  ⏸ human pending", color: "text-stat-amber" },
+      { text: "  ├─ approval            14h  �?� human pending", color: "text-stat-amber" },
       { text: "  └─ hallucination check  0 unverified claims", color: "text-stat-green" },
       { text: "cost breakdown: content-gen 61% · strategy 18%", color: "text-muted-foreground/40" },
     ],
@@ -200,77 +194,18 @@ export default function Index() {
       <AppHeader />
 
       {/* ── HERO — full viewport, split layout ──────────────────────────── */}
-      <section className="relative overflow-hidden" style={{ minHeight: "calc(100vh - 68px)" }}>
+      <section className="relative overflow-hidden" style={{ minHeight: "calc(100vh - 82px)" }}>
         {/* Background */}
         <div className="absolute inset-0 bg-grid opacity-50 pointer-events-none" />
         <div className="absolute -top-48 -left-48 w-[800px] h-[800px] rounded-full bg-primary/5 blur-3xl pointer-events-none" />
         <div className="absolute top-1/3 right-0 w-[500px] h-[700px] rounded-full bg-stat-blue/4 blur-3xl pointer-events-none" />
         <div className="absolute bottom-0 left-1/3 w-[400px] h-[400px] rounded-full bg-stat-purple/3 blur-3xl pointer-events-none" />
 
-        <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 h-full flex items-center py-16 lg:py-0" style={{ minHeight: "calc(100vh - 68px)" }}>
-          <div className="w-full grid grid-cols-1 lg:grid-cols-[55%_45%] gap-12 lg:gap-8 items-center">
+        <div className="relative z-10 max-w-screen-2xl mx-auto px-4 sm:px-6 h-full flex items-center py-16 lg:py-0" style={{ minHeight: "calc(100vh - 82px)" }}>
+          <div className="w-full grid grid-cols-1 lg:grid-cols-[45%_55%] gap-12 lg:gap-20 items-center">
 
-            {/* ── LEFT: Copy ── */}
-            <div>
-              {/* Badge */}
-              <div className="inline-flex items-center gap-2 px-3 py-1.5 mb-7 rounded-full border border-primary/20 bg-primary/5 text-primary font-mono tracking-wide" style={{ fontSize: "11px" }}>
-                <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse-dot" />
-                8 AI Agents · LangGraph · FastAPI · MongoDB
-                <ChevronRight className="h-3 w-3 opacity-60" />
-              </div>
-
-              {/* Headline */}
-              <h1 className="font-display font-bold leading-[1.02] tracking-tight mb-6">
-                <span className="block text-foreground" style={{ fontSize: "clamp(2.5rem, 5vw, 4.5rem)" }}>
-                  Not a pipeline.
-                </span>
-                <span className="block gradient-text" style={{ fontSize: "clamp(2.5rem, 5vw, 4.5rem)" }}>
-                  A graph of
-                </span>
-                <span className="block text-foreground" style={{ fontSize: "clamp(2.5rem, 5vw, 4.5rem)" }}>
-                  autonomous agents.
-                </span>
-              </h1>
-
-              {/* Subtitle */}
-              <p className="text-base sm:text-lg text-muted-foreground leading-relaxed mb-8 max-w-lg">
-                NEXUS deploys eight specialized agents equipped with real tools — RFM clustering, spam scoring, chi-square tests — that cycle on failure, run in parallel, and accumulate cross-campaign memory.
-              </p>
-
-              {/* CTAs */}
-              <div className="flex flex-wrap items-center gap-3 mb-10">
-                <Button asChild size="lg" className="bg-primary hover:bg-primary/90 text-white font-semibold h-11 px-6 rounded-md shadow-[0_0_20px_hsl(34_72%_52%/0.35)]">
-                  <Link href="/campaigns/create">
-                    Launch a campaign
-                    <ArrowRight className="ml-1.5 h-4 w-4" />
-                  </Link>
-                </Button>
-                <Button asChild variant="outline" size="lg" className="border-border/60 hover:bg-accent/50 text-foreground h-11 px-6 rounded-md">
-                  <Link href="/campaigns">View campaigns</Link>
-                </Button>
-              </div>
-
-              {/* Stats — horizontal */}
-              <div className="flex flex-wrap items-center gap-0">
-                {stats.map((s, i) => (
-                  <div key={s.label} className="flex items-center">
-                    {i > 0 && <div className="w-px h-8 bg-border/40 mx-5" />}
-                    <div>
-                      <div className="font-display text-xl font-bold text-foreground">{s.value}</div>
-                      <div className="font-mono text-muted-foreground" style={{ fontSize: "10px" }}>{s.label}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Author */}
-              <p className="font-mono text-muted-foreground/40 mt-8" style={{ fontSize: "11px" }}>
-                Built by <span className="text-primary/60">Abhay Agarwal</span> · MNNIT Allahabad · FrostHack
-              </p>
-            </div>
-
-            {/* ── RIGHT: Terminal ── */}
-            <div className="w-full">
+            {/* ── LEFT: Terminal ── */}
+            <div className="w-full order-2 lg:order-1">
               <div className="rounded-xl border border-border/60 overflow-hidden shadow-[0_0_0_1px_hsl(var(--border)/0.4),0_8px_40px_-8px_hsl(0_0%_0%/0.6)]" style={{ backgroundColor: "hsl(222 26% 5%)" }}>
                 {/* Terminal header */}
                 <div className="flex items-center justify-between px-4 py-3 border-b border-border/40" style={{ backgroundColor: "hsl(222 26% 6%)" }}>
@@ -279,7 +214,7 @@ export default function Index() {
                     <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/50" />
                     <div className="w-2.5 h-2.5 rounded-full bg-green-500/50" />
                   </div>
-                  <span className="font-mono text-muted-foreground" style={{ fontSize: "11px" }}>campaign-graph · nexus</span>
+                  <span className="font-mono text-muted-foreground" style={{ fontSize: "11px" }}>campaign-graph · autonomail</span>
                   <div className="w-16" />
                 </div>
 
@@ -313,13 +248,49 @@ export default function Index() {
               </div>
             </div>
 
+            {/* ── RIGHT: Copy ── */}
+            <div className="order-1 lg:order-2">
+              {/* Headline */}
+              <h1 className="font-display font-bold leading-[1.02] tracking-tight mb-6">
+                <span className="block text-foreground" style={{ fontSize: "clamp(2.5rem, 5vw, 4.5rem)" }}>
+                  Not a pipeline.
+                </span>
+                <span className="block gradient-text" style={{ fontSize: "clamp(2.5rem, 5vw, 4.5rem)" }}>
+                  A graph of
+                </span>
+                <span className="block text-foreground" style={{ fontSize: "clamp(2.5rem, 5vw, 4.5rem)" }}>
+                  autonomous agents.
+                </span>
+              </h1>
+
+              {/* Subtitle */}
+              <p className="text-base sm:text-lg text-muted-foreground leading-relaxed mb-8 max-w-lg">
+                Autonomail deploys eight specialized agents equipped with real tools — that cycle on failure, run in parallel, and accumulate cross-campaign memory.
+              </p>
+
+
+              {/* CTAs */}
+              <div className="flex flex-wrap items-center gap-3 mb-10">
+                <Button asChild size="lg" className="bg-primary hover:bg-primary/90 text-white font-semibold h-11 px-6 rounded-md shadow-[0_0_20px_hsl(34_72%_52%/0.35)]">
+                  <Link href="/campaigns/create">
+                    Launch a campaign
+                    <ArrowRight className="ml-1.5 h-4 w-4" />
+                  </Link>
+                </Button>
+                <Button asChild variant="outline" size="lg" className="border-border/60 hover:bg-accent/50 text-foreground h-11 px-6 rounded-md">
+                  <Link href="/campaigns">View campaigns</Link>
+                </Button>
+              </div>
+
+            </div>
+
           </div>
         </div>
       </section>
 
       {/* ── PIPELINE — graph topology ────────────────────────────────────── */}
       <section className="py-20 lg:py-24 border-t border-border/40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6">
+        <div className="max-w-screen-2xl mx-auto px-4 sm:px-6">
 
           <div className="max-w-2xl mb-12">
             <div className="inline-flex items-center gap-1.5 font-mono bg-primary/8 border border-primary/15 px-2.5 py-1 rounded mb-4 text-primary/80" style={{ fontSize: "11px" }}>
@@ -379,7 +350,7 @@ export default function Index() {
 
       {/* ── AGENTS — compact roster ──────────────────────────────────────── */}
       <section className="py-20 lg:py-24 border-t border-border/40" style={{ backgroundColor: "hsl(222 28% 3.5%)" }}>
-        <div className="max-w-7xl mx-auto px-4 sm:px-6">
+        <div className="max-w-screen-2xl mx-auto px-4 sm:px-6">
 
           <div className="text-center max-w-2xl mx-auto mb-12">
             <div className="inline-flex items-center gap-1.5 font-mono bg-primary/8 border border-primary/15 px-2.5 py-1 rounded mb-4 text-primary/80" style={{ fontSize: "11px" }}>
@@ -425,7 +396,7 @@ export default function Index() {
 
       {/* ── CAPABILITIES — 3 key architecture highlights ─────────────────── */}
       <section className="py-20 lg:py-24 border-t border-border/40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6">
+        <div className="max-w-screen-2xl mx-auto px-4 sm:px-6">
 
           <div className="max-w-2xl mb-16">
             <div className="inline-flex items-center gap-1.5 font-mono bg-primary/8 border border-primary/15 px-2.5 py-1 rounded mb-4 text-primary/80" style={{ fontSize: "11px" }}>
@@ -435,7 +406,7 @@ export default function Index() {
               What makes it genuinely agentic.
             </h2>
             <p className="mt-3 text-sm text-muted-foreground max-w-lg leading-relaxed">
-              Three architectural patterns that separate NEXUS from a sequential LLM pipeline — implemented with real code, not described in a prompt.
+              Three architectural patterns that separate Autonomail from a sequential LLM pipeline — implemented with real code, not described in a prompt.
             </p>
           </div>
 
@@ -474,7 +445,7 @@ export default function Index() {
 
       {/* ── PHASE 2 — Platform Extensions ───────────────────────────────── */}
       <section className="py-20 lg:py-24 border-t border-border/40" style={{ backgroundColor: "hsl(222 28% 3.5%)" }}>
-        <div className="max-w-7xl mx-auto px-4 sm:px-6">
+        <div className="max-w-screen-2xl mx-auto px-4 sm:px-6">
 
           <div className="max-w-2xl mb-12">
             <div className="inline-flex items-center gap-1.5 font-mono bg-stat-purple/8 border border-stat-purple/15 px-2.5 py-1 rounded mb-4 text-stat-purple/80" style={{ fontSize: "11px" }}>
@@ -513,7 +484,7 @@ export default function Index() {
 
       {/* ── CTA ──────────────────────────────────────────────────────────── */}
       <section className="py-24 border-t border-border/40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6">
+        <div className="max-w-screen-2xl mx-auto px-4 sm:px-6">
           <div className="relative rounded-xl border border-border/50 overflow-hidden" style={{ backgroundColor: "hsl(222 28% 4%)" }}>
             <div className="absolute inset-0 bg-grid opacity-50 pointer-events-none" />
             <div className="absolute -bottom-20 -right-20 w-64 h-64 rounded-full bg-primary/8 blur-3xl pointer-events-none" />
@@ -565,19 +536,76 @@ export default function Index() {
       </section>
 
       {/* ── Footer ───────────────────────────────────────────────────────── */}
-      <footer className="border-t border-border/40 py-6">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <Bot className="h-3.5 w-3.5 text-primary/60" />
-            <span className="font-display text-sm font-semibold text-foreground/70">NEXUS</span>
-            <span className="font-mono text-xs text-muted-foreground">
-              · Abhay Agarwal · MNNIT Allahabad · © {new Date().getFullYear()}
-            </span>
+      <footer className="border-t border-border/40 pt-10 pb-8">
+        <div className="max-w-screen-2xl mx-auto px-4 sm:px-6">
+
+          {/* Top row */}
+          <div className="flex flex-col lg:flex-row items-start justify-between gap-8 mb-8">
+
+            {/* Brand */}
+            <div className="shrink-0">
+              <div className="flex items-center gap-2 mb-2">
+                <Bot className="h-4 w-4 text-primary" />
+                <span className="font-display text-base font-bold text-foreground">Autonomail</span>
+              </div>
+              <p className="font-mono text-[11px] text-muted-foreground/50 uppercase tracking-widest">
+                Autonomous Campaign Engine · © {new Date().getFullYear()}
+              </p>
+            </div>
+
+            {/* Personal info grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-12 gap-y-3">
+              <div>
+                <p className="font-mono text-[10px] text-muted-foreground/40 uppercase tracking-widest mb-2">Built by</p>
+                <p className="font-semibold text-sm text-foreground/80">Abhay Agarwal</p>
+                <p className="font-mono text-[11px] text-muted-foreground/50">MNNIT Allahabad</p>
+              </div>
+
+              <div className="space-y-2">
+                <p className="font-mono text-[10px] text-muted-foreground/40 uppercase tracking-widest mb-2">Contact</p>
+                <a href="tel:+918887752006" className="flex items-center gap-2 font-mono text-[12px] text-muted-foreground hover:text-primary transition-colors">
+                  <Phone className="h-3 w-3 shrink-0" />
+                  +91-8887752006
+                </a>
+                <a href="mailto:officialabhay030405@gmail.com" className="flex items-center gap-2 font-mono text-[12px] text-muted-foreground hover:text-primary transition-colors">
+                  <Mail className="h-3 w-3 shrink-0" />
+                  officialabhay030405@gmail.com
+                </a>
+              </div>
+
+              <div className="space-y-2">
+                <p className="font-mono text-[10px] text-muted-foreground/40 uppercase tracking-widest mb-2">Links</p>
+                <a href="https://itsabhay.me" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 font-mono text-[12px] text-muted-foreground hover:text-primary transition-colors">
+                  <Globe className="h-3 w-3 shrink-0" />
+                  itsabhay.me
+                </a>
+                <a href="https://github.com/Abhay030405" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 font-mono text-[12px] text-muted-foreground hover:text-primary transition-colors">
+                  <svg className="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/></svg>
+                  github.com/Abhay030405
+                </a>
+              </div>
+
+              <div className="space-y-2">
+                <p className="font-mono text-[10px] text-muted-foreground/40 uppercase tracking-widest mb-2">Location</p>
+                <div className="flex items-center gap-2 font-mono text-[12px] text-muted-foreground">
+                  <MapPin className="h-3 w-3 shrink-0" />
+                  Jhansi, Uttar Pradesh, India
+                </div>
+              </div>
+            </div>
           </div>
-          <div className="flex items-center gap-5 text-xs text-muted-foreground font-mono">
-            <Link href="/" className="hover:text-foreground transition-colors">home</Link>
-            <Link href="/campaigns" className="hover:text-foreground transition-colors">campaigns</Link>
+
+          {/* Bottom bar */}
+          <div className="border-t border-border/30 pt-5 flex flex-col sm:flex-row items-center justify-between gap-3">
+            <p className="font-mono text-[11px] text-muted-foreground/40">
+              Built with LangGraph · FastAPI · Next.js · MongoDB
+            </p>
+            <div className="flex items-center gap-5 text-[12px] text-muted-foreground font-mono">
+              <Link href="/" className="hover:text-foreground transition-colors">home</Link>
+              <Link href="/campaigns" className="hover:text-foreground transition-colors">campaigns</Link>
+            </div>
           </div>
+
         </div>
       </footer>
     </div>

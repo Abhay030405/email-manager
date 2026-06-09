@@ -54,7 +54,7 @@ export default function Campaigns() {
       {/* ── Page header band ─────────────────────────────────────────────── */}
       <div className="relative border-b border-border/40 bg-[hsl(222,30%,3%)]">
         <div className="absolute inset-0 bg-grid opacity-40 pointer-events-none" />
-        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 py-8">
+        <div className="relative max-w-screen-2xl mx-auto px-4 sm:px-6 py-8">
 
           {/* Breadcrumb */}
           <nav className="flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground/50 mb-5">
@@ -91,7 +91,7 @@ export default function Campaigns() {
         </div>
       </div>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
+      <main className="max-w-screen-2xl mx-auto px-4 sm:px-6 py-8">
 
         {/* Filters */}
         <div className="flex flex-col sm:flex-row gap-2.5 mb-7">

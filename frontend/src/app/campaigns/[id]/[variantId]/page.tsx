@@ -116,7 +116,7 @@ export default function EmailVariantPage() {
             <input
               readOnly
               className="flex-1 bg-transparent text-gmail-primary text-base outline-none cursor-text"
-              defaultValue={variant ? fillPlaceholders(variant.subject_line) : "NEXUS AI — Email Variant Preview"}
+              defaultValue={variant ? fillPlaceholders(variant.subject_line) : "Autonomail — Email Variant Preview"}
               placeholder="Search in mail"
             />
             <button className="p-1.5 rounded-full hover:bg-gmail-search-hover/50 shrink-0">
@@ -276,11 +276,11 @@ export default function EmailVariantPage() {
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <div className="flex items-center gap-1.5">
-                        <span className="text-sm font-medium text-gmail-primary">NEXUS AI</span>
+                        <span className="text-sm font-medium text-gmail-primary">Autonomail AI</span>
                         <svg className="h-4 w-4 text-gmail-blue" viewBox="0 0 24 24" fill="currentColor">
                           <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"/>
                         </svg>
-                        <span className="text-xs text-gmail-secondary">&lt;ai@nexus.engine&gt;</span>
+                        <span className="text-xs text-gmail-secondary">&lt;ai@autonomail.engine&gt;</span>
                       </div>
                       <button className="flex items-center gap-0.5 text-xs text-gmail-secondary hover:text-gmail-primary mt-0.5">
                         to{" "}

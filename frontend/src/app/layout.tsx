@@ -3,7 +3,7 @@ import "./globals.css";
 import { Providers } from "./providers";
 
 export const metadata: Metadata = {
-  title: "NEXUS",
+  title: "Autonomail — Autonomous Campaign Engine · Built by Abhay Agarwal",
   description: "Autonomous Campaign Engine — 4 AI agents, zero guesswork.",
   icons: {
     icon: "/favicon.svg",
@@ -11,7 +11,7 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className="dark">
       <body>

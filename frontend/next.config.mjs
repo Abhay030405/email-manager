@@ -5,9 +5,7 @@ const nextConfig = {
     // Rewrites are only needed in local development to proxy to the backend.
     if (process.env.NODE_ENV === "production") return [];
 
-    const apiBase =
-      process.env.NEXT_PUBLIC_API_URL?.split(",")[0]?.trim() ??
-      "http://localhost:8000";
+    const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "";
 
     return [
       {

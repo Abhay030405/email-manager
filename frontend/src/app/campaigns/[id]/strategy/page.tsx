@@ -33,7 +33,7 @@ function mapSegment(s: ApiSegment): SegmentCardData {
   return {
     name: s.segment_name.replaceAll("_", " "),
     count: s.customer_ids?.length ?? 0,
-    age: c.age_range ? `${c.age_range.min ?? ""}–${c.age_range.max ?? ""}` : "All ages",
+    age: c.age_range ? `${c.age_range.min ?? ""}�${c.age_range.max ?? ""}` : "All ages",
     gender: c.gender ?? "All",
     location: "All locations",
     description: s.description || `Segment: ${s.segment_name}`,
@@ -108,7 +108,7 @@ export default function CampaignStrategy() {
 
         {loading ? (
           <div className="flex items-center justify-center py-24 border border-border/40 rounded-lg bg-card">
-            <p className="font-mono text-sm text-muted-foreground/60">Loading strategy…</p>
+            <p className="font-mono text-sm text-muted-foreground/60">Loading strategy�</p>
           </div>
         ) : (
           <>

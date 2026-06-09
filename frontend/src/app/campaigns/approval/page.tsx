@@ -63,7 +63,7 @@ export default function CampaignApproval() {
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <AppHeader />
-      <main className="max-w-7xl mx-auto w-full px-4 sm:px-6 py-10">
+      <main className="max-w-screen-2xl mx-auto w-full px-4 sm:px-6 py-10">
 
         {/* Breadcrumb */}
         <nav className="flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground/60 mb-6">

@@ -81,7 +81,7 @@ export default function CampaignDetail() {
         return {
           name: s.segment_name.replaceAll("_", " "),
           count: s.customer_ids?.length ?? 0,
-          age: c.age_range ? `${c.age_range.min ?? ""}–${c.age_range.max ?? ""}` : "All ages",
+          age: c.age_range ? `${c.age_range.min ?? ""}�${c.age_range.max ?? ""}` : "All ages",
           gender: c.gender ?? "All",
           location: "All locations",
           description: s.description || `Segment: ${s.segment_name}`,
@@ -145,7 +145,7 @@ export default function CampaignDetail() {
     ? [
         { name: "Open Rate",    variantA: varA.openRate,              variantB: varB.openRate },
         { name: "Click Rate",   variantA: varA.clickRate,             variantB: varB.clickRate },
-        { name: "Sent (÷100)", variantA: +(varA.totalSent / 100).toFixed(1), variantB: +(varB.totalSent / 100).toFixed(1) },
+        { name: "Sent (�100)", variantA: +(varA.totalSent / 100).toFixed(1), variantB: +(varB.totalSent / 100).toFixed(1) },
       ]
     : [];
 
@@ -192,7 +192,7 @@ export default function CampaignDetail() {
               </span>
             </div>
             <p className="font-mono text-[11px] text-muted-foreground/60">
-              {campaign.product} · Created {campaign.createdAt}
+              {campaign.product} � Created {campaign.createdAt}
             </p>
           </div>
           <Button
@@ -230,7 +230,7 @@ export default function CampaignDetail() {
           </div>
         )}
 
-        {/* ── Overview tab ── */}
+        {/* ?? Overview tab ?? */}
         {view === "overview" ? (
           <div className="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
 
@@ -385,7 +385,7 @@ export default function CampaignDetail() {
                         })()
                       : campaign.scheduledSend} />
                   <StrategyRow icon={BarChart3} label="A/B test"
-                    value={strategy?.ab_test_plan ? `${strategy.ab_test_plan.num_variants} variants — testing ${strategy.ab_test_plan.test_dimension}` : "Subject line, CTA copy, and send time."} />
+                    value={strategy?.ab_test_plan ? `${strategy.ab_test_plan.num_variants} variants � testing ${strategy.ab_test_plan.test_dimension}` : "Subject line, CTA copy, and send time."} />
                 </div>
               </div>
 
@@ -442,15 +442,15 @@ export default function CampaignDetail() {
           </div>
 
         ) : (
-          /* ── Metrics tab ── */
+          /* ?? Metrics tab ?? */
           metricsLoading ? (
             <div className="mt-6 flex items-center justify-center py-20 border border-border/40 rounded-lg bg-card">
-              <p className="font-mono text-sm text-muted-foreground/60">Loading metrics…</p>
+              <p className="font-mono text-sm text-muted-foreground/60">Loading metrics�</p>
             </div>
           ) : !liveMetrics || liveMetrics.length === 0 ? (
             <div className="mt-6 flex flex-col items-center justify-center py-20 space-y-3 border border-border/40 rounded-lg bg-card">
               <p className="font-mono text-sm text-muted-foreground">No metrics available yet.</p>
-              <p className="font-mono text-xs text-muted-foreground/60">Execution may still be in progress — try refreshing in a few seconds.</p>
+              <p className="font-mono text-xs text-muted-foreground/60">Execution may still be in progress � try refreshing in a few seconds.</p>
               <Button variant="outline" className="font-mono text-xs border-border/60" onClick={() => setLiveMetrics(null)}>
                 Refresh Metrics
               </Button>
@@ -570,7 +570,7 @@ export default function CampaignDetail() {
             <Label className="font-mono text-xs text-muted-foreground uppercase tracking-widest">Notes for the team</Label>
             <Textarea
               rows={5}
-              placeholder="Describe what needs to change…"
+              placeholder="Describe what needs to change�"
               value={revisionNote}
               onChange={(e) => setRevisionNote(e.target.value)}
               className="bg-background border-border/60 font-mono text-sm"
