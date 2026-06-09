@@ -81,7 +81,7 @@ def create_app() -> FastAPI:
         )
 
     # ── Root endpoint ─────────────────────────────────────────────
-    @app.get("/", tags=["root"])
+    @app.get("/api", tags=["root"])
     async def root() -> dict:
         return {
             "message": "CampaignX API",
