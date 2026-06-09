@@ -82,7 +82,7 @@ services:
       # Still set this so /docs (Swagger UI) and direct API calls work.
       # After first deploy, replace the placeholder with your actual DO app URL.
       - key: ALLOWED_ORIGINS
-        value: '["https://REPLACE_WITH_APP_URL.ondigitalocean.app","http://localhost:8080","http://localhost:3000"]'
+        value: '["https://autonomail.dev","https://www.autonomail.dev","http://localhost:8080","http://localhost:3000"]'
       - key: ALLOW_CREDENTIALS
         value: "true"
       - key: ALLOWED_METHODS
@@ -135,7 +135,7 @@ services:
       # calls /api/v1/... on its own domain. Set this to your actual DO app URL.
       # After first deploy copy the URL from DO dashboard and redeploy frontend.
       - key: NEXT_PUBLIC_API_URL
-        value: https://REPLACE_WITH_APP_URL.ondigitalocean.app
+        value: https://autonomail.dev
         scope: BUILD_TIME
 
 # ─────────────────────────────────────────────────────────────────────────────
