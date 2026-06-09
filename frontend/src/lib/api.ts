@@ -1,4 +1,5 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+// Empty string → relative URLs in production; Next.js rewrites proxy /api/* in dev.
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 // ── Backend shapes ─────────────────────────────────────────────────────────
 

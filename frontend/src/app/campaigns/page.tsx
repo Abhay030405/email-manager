@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 import { useCampaigns } from "@/context/CampaignsContext";
 import { CampaignStatus } from "@/data/campaignsData";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 const statusConfig: Record<CampaignStatus, { label: string; className: string }> = {
   draft:     { label: "Draft",     className: "text-muted-foreground/70 border-border/50" },

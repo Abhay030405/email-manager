@@ -17,7 +17,7 @@ import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { CampaignProgressTracker } from "@/components/campaign/CampaignProgressTracker";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 interface AudienceGroup {
   min_age: number | null;

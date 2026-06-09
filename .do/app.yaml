@@ -129,14 +129,10 @@ services:
     instance_count: 1
     instance_size_slug: basic-xxs
     envs:
-      # NEXT_PUBLIC_* vars are baked into the client bundle at build time —
-      # scope must include BUILD_TIME.
-      # With ingress, both services share the same DO app URL, so the frontend
-      # calls /api/v1/... on its own domain. Set this to your actual DO app URL.
-      # After first deploy copy the URL from DO dashboard and redeploy frontend.
-      - key: NEXT_PUBLIC_API_URL
-        value: https://autonomail.dev
-        scope: BUILD_TIME
+      # NEXT_PUBLIC_API_URL is intentionally NOT set in production.
+      # The fallback is "" (empty string) → relative URLs like /api/v1/...
+      # DO ingress routes /api/* to the backend automatically.
+      # In local dev, next.config.mjs rewrites /api/* to the backend.
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Ingress — one shared public URL for both services
