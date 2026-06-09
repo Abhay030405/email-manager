@@ -1,9 +1,8 @@
-# AI-Driven Multi-Agent Platform for Campaign Planning & Optimization
+# CampaignX — AI Multi-Agent Marketing Automation Platform
 
-An autonomous AI multi-agent system that plans, executes, monitors, and optimizes digital marketing email campaigns.
+An autonomous AI multi-agent system that plans, executes, and optimizes email marketing campaigns. Specialized AI agents collaborate through a directed LangGraph execution graph to parse campaign briefs, segment customers, generate strategy, create personalized email content, and execute campaigns — with a human-in-the-loop approval gate before any emails are sent.
 
-The platform operates like an autonomous marketing team: specialized AI agents collaborate through a directed execution graph to understand campaign briefs, segment customers, generate strategies, create email content, execute campaigns, collect metrics, and continuously optimize performance through feedback loops.
-
+**Live:** [https://autonomail.dev](https://autonomail.dev)  
 **Author:** Abhay Agarwal
 
 ---
@@ -11,83 +10,60 @@ The platform operates like an autonomous marketing team: specialized AI agents c
 ## Table of Contents
 
 - [Architecture Overview](#architecture-overview)
-- [Core AI Agents](#core-ai-agents)
-- [System Workflow](#system-workflow)
+- [AI Agent Pipeline](#ai-agent-pipeline)
 - [Tech Stack](#tech-stack)
 - [Project Structure](#project-structure)
-- [Data Structures & Optimization](#data-structures--optimization)
-- [Getting Started](#getting-started)
+- [Getting Started (Local)](#getting-started-local)
 - [Environment Variables](#environment-variables)
-- [Testing](#testing)
-- [Development Phases](#development-phases)
+- [Deployment](#deployment)
 
 ---
 
 ## Architecture Overview
 
 ```
-Frontend Layer (React + Tailwind CSS)
-         ↓
-API Gateway Layer (FastAPI REST)
-         ↓
-Campaign Orchestration Layer (LangGraph Workflows)
-         ↓
-AI Agent Layer (LangChain + OpenAI GPT-4)
-         ↓
-External Campaign APIs (Customer Data · Email Sending · Analytics)
-         ↓
-Data Storage & Analytics Layer (MongoDB + Motor)
+Next.js 14 Frontend (App Router + Shadcn/ui)
+            ↓  REST API
+FastAPI Backend (/api/v1/*)
+            ↓  LangGraph orchestration
+AI Agent Pipeline (LangChain + OpenRouter LLM)
+            ↓  async Motor driver
+MongoDB Atlas
+            ↓  HTTP
+Mock Campaign API (email execution)
 ```
 
-### Design Principles
+### How it works
 
-1. **Agentic AI Architecture** — Specialized agents with distinct responsibilities
-2. **Feedback-Driven Optimization** — Continuous improvement via metrics loops
-3. **Modular System Design** — Clean separation of concerns across layers
-4. **Data-Structure Driven Intelligence** — Priority queues, hashmaps, and graphs for efficient processing
-5. **Human-in-the-Loop Safety** — Approval gates before campaign execution
+1. User fills a multi-step form describing their product, audience, and goals
+2. Frontend POSTs to `POST /api/v1/campaigns` to persist the brief, then calls `POST /api/v1/campaigns/{id}/start`
+3. The backend fires an `asyncio.create_task` — the LangGraph pipeline runs in the background
+4. Frontend polls `GET /api/v1/campaigns/{id}/status` every 4 seconds, showing a live progress tracker
+5. Pipeline pauses at the approval node (`PENDING_APPROVAL`) — a human reviews and approves/rejects
+6. On approval, execution resumes and emails are sent via the Mock Campaign API
 
 ---
 
-## Core AI Agents
+## AI Agent Pipeline
 
-| Agent | Responsibility |
-|-------|---------------|
-| **Campaign Brief Parser** | Extracts structured data (product, audience, CTA, budget) from natural language briefs |
-| **Customer Segmentation** | Groups customers into micro-segments based on demographics and behavior |
-| **Campaign Strategy** | Determines targeting strategy, send-time optimization, and A/B test plans |
-| **Content Generation** | Generates email subject lines and bodies with personalization variants |
-| **Approval Coordinator** | Manages human-in-the-loop approval workflow |
-| **Campaign Execution** | Interfaces with external email APIs to schedule and send campaigns |
-| **Performance Monitoring** | Collects open rates, click rates, and conversion metrics |
-| **Optimization** | Identifies underperformers, generates improved variants, and triggers re-optimization |
-
-### Agent Orchestration Graph
+LangGraph `StateGraph` with 6 nodes:
 
 ```
-BriefParser → Segmenter → StrategyPlanner → ContentGenerator → ApprovalNode
-                                                                     ↓
-                          OptimizationAgent ← MetricsCollector ← ExecutionAgent
-                                ↓
-                          StrategyPlanner (feedback loop)
+parse_brief → segmentation → strategy → content_generation → approval → execution
+                                                                  ↑
+                                                        wait_approval (loop)
 ```
 
-Agents are orchestrated as a **directed execution graph** using LangGraph, with conditional routing and a feedback loop from the Optimization Agent back to Strategy for continuous improvement.
+| Node | Agent | What it does |
+|------|-------|-------------|
+| `parse_brief` | Brief Parser | Extracts product details, target audience, objective, and preferences from the natural language brief |
+| `segmentation` | Segmentation Agent | Fetches customer cohort, groups into micro-segments with priority scores and recommended messaging approaches |
+| `strategy` | Strategy Agent | Produces targeting strategy, send-time plan, and A/B variant structure for each segment |
+| `content_generation` | Content Gen Agent | Generates personalized email subject lines and bodies per segment variant |
+| `approval` | Approval Coordinator | Sets status to `PENDING_APPROVAL` and pauses the graph — waits for human review |
+| `execution` | Execution Agent | Schedules and sends campaigns via the Mock Campaign API, records variant IDs |
 
----
-
-## System Workflow
-
-1. **Campaign Brief Input** — Marketer enters a natural language campaign brief
-2. **Brief Parsing** — AI extracts product details, target audience, CTA link, and goals
-3. **Customer Retrieval** — System fetches customer cohort via external APIs
-4. **Segmentation** — Customers grouped into meaningful micro-segments
-5. **Strategy Generation** — AI determines segments, send times, and A/B variants
-6. **Content Generation** — AI generates email subjects, bodies, and style variants
-7. **Human Approval** — Campaign plan displayed for review and approval
-8. **Execution** — Approved campaigns scheduled and sent via email API
-9. **Metrics Collection** — Open rates and click rates collected in real-time
-10. **Optimization Loop** — AI adjusts strategy and relaunches underperforming variants
+All nodes run through `_execute_node_with_retries` which writes `current_step` to MongoDB on entry and retries on failure (up to 3 attempts with exponential backoff).
 
 ---
 
@@ -96,151 +72,125 @@ Agents are orchestrated as a **directed execution graph** using LangGraph, with 
 ### Backend
 | Technology | Purpose |
 |------------|---------|
-| Python 3.11+ | Programming language |
-| FastAPI | REST API framework |
-| Pydantic v2 | Data validation & serialization |
-| LangChain | AI agent framework |
-| LangGraph | Agent orchestration workflows |
-| OpenAI GPT-4 | Primary LLM |
+| Python 3.11 | Language |
+| FastAPI | REST API |
+| Pydantic v2 + pydantic-settings | Validation & config |
+| LangChain + LangGraph | Agent framework & orchestration |
+| OpenRouter → Google Gemini 2.5 Flash Lite | LLM |
 | Motor (async) | MongoDB async driver |
-| PyMongo | MongoDB driver |
+| uvicorn | ASGI server |
 
 ### Frontend
 | Technology | Purpose |
 |------------|---------|
-| React 18 | UI framework |
+| Next.js 14 (App Router) | React framework |
+| Shadcn/ui | Component library |
 | Tailwind CSS | Styling |
+| Lucide React | Icons |
 | Recharts | Data visualization |
-| React Router 6 | Routing |
-| Axios | HTTP client |
-| Vite | Build tool |
 
-### Database & Infrastructure
+### Infrastructure
 | Technology | Purpose |
 |------------|---------|
-| MongoDB | Primary database |
-| Faker | Mock data generation |
-| pytest + pytest-asyncio | Testing framework |
-| mongomock-motor | In-memory test database |
+| MongoDB Atlas | Primary database |
+| Digital Ocean App Platform | Hosting (backend + frontend) |
+| OpenRouter | LLM API gateway |
+| Mock Campaign API (Render) | Email execution sandbox |
 
 ---
 
 ## Project Structure
 
 ```
+├── .do/
+│   └── app.yaml                  # Digital Ocean App Platform spec
 ├── backend/
+│   ├── Procfile                  # Tells DO buildpack how to start uvicorn
+│   ├── requirements.txt
 │   ├── app/
-│   │   ├── agents/              # 8 AI agent implementations
-│   │   │   ├── base_agent.py    #   Base agent class (LangChain)
-│   │   │   ├── brief_parser.py  #   Campaign brief parser
-│   │   │   ├── segmentation.py  #   Customer segmentation
-│   │   │   ├── strategy.py      #   Campaign strategy planner
-│   │   │   ├── content_gen.py   #   Email content generator
-│   │   │   ├── approval.py      #   Approval coordinator
-│   │   │   ├── execution.py     #   Campaign execution
-│   │   │   ├── monitoring.py    #   Performance monitoring
-│   │   │   └── optimization.py  #   Optimization engine
-│   │   ├── api/v1/              # REST API endpoints
-│   │   ├── core/                # Config, security, logging
-│   │   ├── db/                  # MongoDB connection & repositories
-│   │   │   ├── mongodb.py       #   Async connection manager (pooling)
-│   │   │   ├── repositories/    #   Generic BaseRepository + 4 repos
-│   │   │   └── migrations/      #   Seed data (Faker, 500+ records)
-│   │   ├── models/              # Pydantic models & schemas
-│   │   ├── orchestration/       # LangGraph campaign & optimization graphs
-│   │   ├── services/            # Business logic layer
-│   │   ├── external/            # External API integrations
-│   │   └── utils/               # Data structures, validators, helpers
-│   ├── tests/                   # 97 async tests (pytest)
-│   │   ├── conftest.py          #   Shared fixtures & mock DB
-│   │   └── test_repositories/   #   Repository CRUD & query tests
-│   └── scripts/                 # DB seeding & migration scripts
-├── frontend/                    # React application
-├── docs/                        # Architecture & build plan docs
+│   │   ├── main.py               # FastAPI app factory + lifespan
+│   │   ├── agents/               # LangChain agent implementations
+│   │   │   ├── brief_parser.py
+│   │   │   ├── segmentation.py
+│   │   │   ├── strategy.py
+│   │   │   ├── content_gen.py
+│   │   │   ├── approval.py
+│   │   │   └── execution.py
+│   │   ├── api/v1/               # REST endpoints
+│   │   │   ├── campaigns.py      #   /campaigns + /start + /status
+│   │   │   ├── segments.py
+│   │   │   ├── approval.py
+│   │   │   ├── agents.py         #   Individual agent test endpoints
+│   │   │   └── health.py
+│   │   ├── orchestration/
+│   │   │   ├── campaign_graph.py # LangGraph StateGraph definition
+│   │   │   └── state.py          # CampaignState TypedDict
+│   │   ├── models/               # MongoDB document models
+│   │   ├── db/
+│   │   │   ├── mongodb.py        # Atlas connection manager
+│   │   │   └── repositories/     # BaseRepository + CampaignRepository etc.
+│   │   ├── schemas/              # Pydantic request/response schemas
+│   │   └── core/                 # Config, logging, security
+│   └── tests/
+├── frontend/
+│   ├── src/
+│   │   ├── app/                  # Next.js App Router pages
+│   │   │   ├── campaigns/
+│   │   │   │   ├── create/       # Campaign creation form
+│   │   │   │   ├── [id]/         # Campaign detail & approval
+│   │   │   │   └── page.tsx      # Campaign list
+│   │   │   └── layout.tsx
+│   │   ├── components/
+│   │   │   ├── CampaignForm.tsx  # Multi-step campaign brief form
+│   │   │   ├── campaign/
+│   │   │   │   └── CampaignProgressTracker.tsx  # Live pipeline UI
+│   │   │   └── ui/               # Shadcn components
+│   │   ├── hooks/
+│   │   │   └── useCampaignPolling.ts  # Polls /status every 4s
+│   │   └── lib/
+│   │       ├── campaignSteps.ts  # Pipeline step definitions
+│   │       └── api.ts            # Fetch utilities
 └── README.md
 ```
 
 ---
 
-## Data Structures & Optimization
-
-### Customer Storage
-```
-HashMap<CustomerID, CustomerProfile>
-```
-Indexed by `customer_id`, `age`, `gender`, `location`, `activity_status`.
-
-### Segment Storage
-```
-HashMap<SegmentName, List<CustomerID>>
-```
-Segments auto-sync size with customer ID lists via Pydantic validators.
-
-### Campaign Variant Storage
-```
-List<CampaignVariant>   # subject, body, send_time, metrics per variant
-```
-3–5 A/B variants per campaign, tracked by segment.
-
-### Optimization Priority Queue
-```
-PriorityQueue<CampaignVariant>
-score = 0.7 × click_rate + 0.3 × open_rate
-```
-Lowest-scoring variants are prioritized for AI-driven replacement. Performance score is auto-calculated via `model_validator`.
-
-### MongoDB Collections
-
-| Collection | Key Indexes |
-|------------|-------------|
-| `customers` | customer_id (unique), age, gender, location, activity_status |
-| `campaigns` | campaign_id (unique), status, created_at (desc) |
-| `campaign_variants` | variant_id (unique), campaign_id, segment_name, status |
-| `metrics` | metric_id (unique), variant_id, campaign_id, performance_score (desc) |
-| `segments` | segment_id (unique), campaign_id, segment_name |
-
----
-
-## Getting Started
+## Getting Started (Local)
 
 ### Prerequisites
-
-- Python 3.10+
+- Python 3.11+
 - Node.js 18+
-- MongoDB (local or Atlas)
+- MongoDB Atlas account (or local MongoDB)
 
-### Backend Setup
+### Backend
 
 ```bash
 cd backend
 python -m venv venv
-venv\Scripts\activate          # Windows
-# source venv/bin/activate     # macOS/Linux
+venv\Scripts\activate        # Windows
+# source venv/bin/activate   # macOS/Linux
 pip install -r requirements.txt
 ```
 
-### Seed the Database
+Create `backend/.env` (see [Environment Variables](#environment-variables) below), then:
 
 ```bash
-cd backend
-python scripts/seed_database.py
-```
-
-Generates 500 customers, 10 campaigns, 37 variants, metrics, and 26 segments using Faker with deterministic seeds.
-
-### Run the Backend
-
-```bash
-cd backend
 uvicorn app.main:app --reload --port 8000
 ```
 
-### Frontend Setup
+API docs available at [http://localhost:8000/docs](http://localhost:8000/docs)
+
+### Frontend
 
 ```bash
 cd frontend
 npm install
-npm run dev
+npm run dev        # runs on http://localhost:8080
+```
+
+Create `frontend/.env.local`:
+```env
+NEXT_PUBLIC_API_URL=http://localhost:8000
 ```
 
 ---
@@ -248,56 +198,61 @@ npm run dev
 ## Environment Variables
 
 ### Backend (`backend/.env`)
+
 ```env
-OPENAI_API_KEY=sk-...
-MONGODB_URL=mongodb://localhost:27017
-MONGODB_DB_NAME=campaignx
-EXTERNAL_CAMPAIGN_API_URL=https://...
-EXTERNAL_EMAIL_API_URL=https://...
-EXTERNAL_METRICS_API_URL=https://...
+# App
+ENVIRONMENT=production
+DEBUG=false
 LOG_LEVEL=INFO
+
+# LLM — OpenRouter
+OPENROUTER_API_KEY=sk-or-v1-...
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+LLM_MODEL=google/gemini-2.5-flash-lite
+
+# MongoDB Atlas
+MONGODB_URI=mongodb+srv://user:pass@cluster.mongodb.net/
+DATABASE_NAME=campaignx
+
+# Mock Campaign API
+MOCK_CAMPAIGN_API_URL=https://mock-campaign-api.onrender.com
+MOCK_API_TIMEOUT=60
+
+# CORS
+ALLOWED_ORIGINS=["https://autonomail.dev","http://localhost:8080"]
+
+# Security
+SECRET_KEY=<openssl rand -hex 32>
+ALGORITHM=HS256
 ```
 
-### Frontend (`frontend/.env`)
+### Frontend (`frontend/.env.local`)
+
 ```env
-VITE_API_BASE_URL=http://localhost:8000
-VITE_WS_URL=ws://localhost:8000
+NEXT_PUBLIC_API_URL=http://localhost:8000   # or https://autonomail.dev for prod
 ```
 
 ---
 
-## Testing
+## Deployment
 
+Deployed on **Digital Ocean App Platform** using `.do/app.yaml`.
+
+Both services share a single domain via DO ingress rules:
+- `https://autonomail.dev/api/*` → FastAPI backend
+- `https://autonomail.dev/*` → Next.js frontend
+
+### Redeploy
+
+Any push to `master` triggers an automatic redeploy (`deploy_on_push: true`).
+
+To deploy manually:
 ```bash
-cd backend
-python -m pytest tests/ -v
+doctl auth init
+doctl apps create --spec .do/app.yaml
+# or update existing:
+doctl apps update <APP_ID> --spec .do/app.yaml
 ```
-
-**Current status:** 97 tests passing — covering all 4 repository classes with CRUD, specialised queries, Pydantic model validation, and error handling. Tests use `mongomock-motor` for in-memory async MongoDB.
-
-| Test Area | Tests |
-|-----------|-------|
-| Campaign Repository | 25 |
-| Customer Repository | 27 |
-| Variant Repository | 22 |
-| Metrics Repository | 23 |
-
----
-
-## Development Phases
-
-| Phase | Description | Status |
-|-------|-------------|--------|
-| 1 | Project Setup & Infrastructure | ✅ Complete |
-| 2 | Database Design & Data Models | ✅ Complete |
-| 3 | Core AI Agent Development | Upcoming |
-| 4 | LangGraph Orchestration System | Upcoming |
-| 5 | Backend API Development | Upcoming |
-| 6 | Frontend Foundation & UI Components | Upcoming |
-| 7 | Campaign Execution & External Integration | Upcoming |
-| 8 | Metrics Collection & Monitoring | Upcoming |
-| 9 | Optimization Engine & Feedback Loop | Upcoming |
-| 10 | Testing, Polish & Deployment | Upcoming |
 
 ---
 
