@@ -62,10 +62,10 @@ def create_app() -> FastAPI:
     app.add_middleware(RequestLoggingMiddleware)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.ALLOWED_ORIGINS,
+        allow_origins=settings.cors_origins,
         allow_credentials=True,
-        allow_methods=settings.ALLOWED_METHODS,
-        allow_headers=settings.ALLOWED_HEADERS,
+        allow_methods=settings.cors_methods,
+        allow_headers=settings.cors_headers,
     )
 
     # ── Routers ───────────────────────────────────────────────────

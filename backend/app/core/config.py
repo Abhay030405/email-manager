@@ -33,14 +33,12 @@ class Settings(BaseSettings):
     PORT: int = 8000
 
     # ── CORS ─────────────────────────────────────────────────────────
-    ALLOWED_ORIGINS: list[str] = [
-        "http://localhost:5173",  # Vite dev server (default port)
-        "http://localhost:8080",  # Vite dev server (configured port)
-        "http://127.0.0.1:8080", # Vite via IPv4 loopback
-        "http://localhost:3000",  # CRA / alternate dev
-    ]
-    ALLOWED_METHODS: list[str] = ["*"]
-    ALLOWED_HEADERS: list[str] = ["*"]
+    # Stored as plain str so pydantic-settings never calls json.loads on them.
+    # main.py calls settings.cors_origins / cors_methods / cors_headers which
+    # parse them into lists at runtime.
+    ALLOWED_ORIGINS: str = "http://localhost:5173,http://localhost:8080,http://127.0.0.1:8080,http://localhost:3000"
+    ALLOWED_METHODS: str = "*"
+    ALLOWED_HEADERS: str = "*"
 
     # ── Database ─────────────────────────────────────────────────────
     # MONGODB_URL / MONGODB_DB_NAME: existing names kept for backward-compat
@@ -71,6 +69,26 @@ class Settings(BaseSettings):
 
     # ── Derived / resolved properties ────────────────────────────────
 
+    def _split_cors_field(self, value: str) -> list[str]:
+        """Parse a CORS field from either JSON array or comma-separated string."""
+        v = value.strip()
+        if v.startswith("["):
+            import json as _json
+            return _json.loads(v)
+        return [item.strip() for item in v.split(",") if item.strip()]
+
+    @property
+    def cors_origins(self) -> list[str]:
+        return self._split_cors_field(self.ALLOWED_ORIGINS)
+
+    @property
+    def cors_methods(self) -> list[str]:
+        return self._split_cors_field(self.ALLOWED_METHODS)
+
+    @property
+    def cors_headers(self) -> list[str]:
+        return self._split_cors_field(self.ALLOWED_HEADERS)
+
     @model_validator(mode="after")
     def _resolve_aliases(self) -> "Settings":
         """Let the alias fields win when they are explicitly set."""
@@ -79,22 +97,6 @@ class Settings(BaseSettings):
         if self.DATABASE_NAME:
             self.MONGODB_DB_NAME = self.DATABASE_NAME
         return self
-
-    @field_validator("ALLOWED_ORIGINS", "ALLOWED_METHODS", "ALLOWED_HEADERS", mode="before")
-    @classmethod
-    def _parse_string_list(cls, v: Any) -> Any:
-        """Accept both JSON array strings and comma-separated strings.
-
-        DO App Platform injects env vars as raw strings, while .env files go
-        through dotenv parsing. Both formats need to produce a list[str].
-        """
-        if isinstance(v, str):
-            stripped = v.strip()
-            if stripped.startswith("["):
-                import json as _json
-                return _json.loads(stripped)
-            return [item.strip() for item in stripped.split(",") if item.strip()]
-        return v
 
     @field_validator("ENVIRONMENT")
     @classmethod
